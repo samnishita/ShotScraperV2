@@ -282,23 +282,23 @@ public class RunHandler implements ScraperUtilsInterface {
     }
 
     /**
-     * Add new shots to the new shot count for logging purposes
-     * @param addedShots The number of new shots scraped
+     * Adds new shots to the new shot count for logging purposes
+     * @param addedShots the number of new shots scraped
      */
     public static void addToNewShotCount(int addedShots) {
         newShots += addedShots;
     }
 
     /**
-     * Get the player data from the front of the queue
-     * @return HashMap of player info
+     * Gets the player data from the front of the queue
+     * @return hashMap of player info
      */
     public static HashMap<String, String> popConcurrentHashMap() {
         return threadSafePlayerQueue.poll();
     }
 
     /**
-     * Create a queue of all players and their data for threads to poll
+     * Creates a queue of all players and their data for threads to poll
      */
     private void populateThreadSafeQueueWithPlayers() {
         try {

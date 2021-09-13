@@ -27,12 +27,12 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     private Connection connPlayers2 = null;
 
     /**
-     * Establish connections to databases
+     * Establishes connections to databases
      *
-     * @param schema1   Name of first database schema
-     * @param location1 Location of first database
-     * @param schema2   Name of second database schema
-     * @param location2 Location of second database schema
+     * @param schema1   name of first database schema
+     * @param location1 location of first database
+     * @param schema2   name of second database schema
+     * @param location2 location of second database schema
      * @throws SQLException If connections to databases are denied
      */
     @Autowired
@@ -45,11 +45,11 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Creates player_all_data, player_relevant_data, team_data, and misc tables if they are not present in the connected database
+     * Creates general use tables if they are not present in the connected database
      * <p>
      * The misc table is initialized with specific fields
      *
-     * @param conn The connection to the desired database
+     * @param conn the connection to the desired database
      * @throws SQLException If a connection to the desired database cannot be established
      */
     private void createGeneralTablesIfNecessary(Connection conn) throws SQLException {
@@ -94,10 +94,10 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Create a player table for players and their basic information and activity data
+     * Creates a player table for players and their basic information and activity data
      *
-     * @param tableName The name of the table
-     * @param conn      Connection to database
+     * @param tableName the name of the table
+     * @param conn      connection to database
      * @throws SQLException If SQL query fails
      */
     private void createLargePlayerTable(String tableName, Connection conn) throws SQLException {
@@ -115,10 +115,10 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Get all entries for column 'id' for given sql query
+     * Gets all entries for column 'id' for given sql query
      *
-     * @param sql The query to be executed
-     * @return A HashSet of all ids
+     * @param sql query to be executed
+     * @return hashSet of all IDs
      * @throws SQLException If the query fails
      */
     private HashSet getAllIds(String sql) throws SQLException {
@@ -139,14 +139,10 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     /**
      * Inserts basic player data and basic activity information into database
      *
-     * @param insertPlayer  SQL statement, formatted for a prepared statement
-     * @param playerDetails An array of player data scraped from site
-     * @param conn          Connection to database
-     * @param activityIndex Array index of data that indicates whether the player is active
-     *                      <p>
-     *                      Some players have more or fewer than two parts to their name
-     *                      <p>
-     *                      Active players have an additional parameter of their current team
+     * @param insertPlayer  the SQL statement, formatted for a prepared statement
+     * @param playerDetails array of player data scraped from site
+     * @param conn          connection to database
+     * @param activityIndex array index of data that indicates whether the player is active. Some players have more or fewer than two parts to their name. Active players have an additional parameter of their current team
      * @throws SQLException If preparing the SQL statement fails
      */
     private void insertPlayerData(String insertPlayer, String[] playerDetails, Connection conn, int activityIndex) throws SQLException {
@@ -180,9 +176,9 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Map each player ID to their current active status
+     * Maps each player ID to their current active status
      *
-     * @return A Hashmap with a key of player ID and a value of their currently active status
+     * @return hashmap with a key of player ID and a value of their currently active status
      * @throws SQLException If SQL query fails
      */
     private HashMap getEachPlayerCurrentlyActiveMap() throws SQLException {
@@ -195,9 +191,9 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Map each player ID to their most recent active year
+     * Maps each player ID to their most recent active year
      *
-     * @return A Hashmap with a key of player ID and a value of their most recent active year
+     * @return hashmap with a key of player ID and a value of their most recent active year
      * @throws SQLException If SQL query fails
      */
     private HashMap getEachPlayerRecentYearMap() throws SQLException {
@@ -213,10 +209,10 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     /**
      * Updates a player's currently active status to active or inactive
      *
-     * @param tableName Table name to update
-     * @param isActive  New activity status
-     * @param id        Player ID
-     * @param conn      Database connection
+     * @param tableName the able name to update
+     * @param isActive  the new activity status
+     * @param id        the player's ID
+     * @param conn      the database connection
      * @throws SQLException If updating fails
      */
     private void updateCurrentlyActive(String tableName, int isActive, String id, Connection conn) throws SQLException {
@@ -229,8 +225,8 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     /**
      * Updates a player's most recent active year
      *
-     * @param playerDetails A player's basic information
-     * @param index         The index of the player's most recent active year
+     * @param playerDetails the player's basic information
+     * @param index         the index of the player's most recent active year
      */
     protected void updateMostRecentActiveYear(String[] playerDetails, int index) {
         String sqlUpdate = "UPDATE player_all_data SET mostrecentactiveyear = \"" + ScraperUtilsInterface.super.buildYear(playerDetails[index]) + "\" WHERE id = " + Integer.parseInt(playerDetails[0]);
@@ -364,9 +360,9 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Insert team information into database
-     * @param conn Connection to database
-     * @param teamDetails Array of team information
+     * Inserts team information into database
+     * @param conn connection to database
+     * @param teamDetails array of team information
      */
     private void addTeamToDatabase(Connection conn, String[] teamDetails) {
         try {

@@ -18,7 +18,7 @@ import java.util.ResourceBundle;
 public interface ScraperUtilsInterface {
 
     /**
-     * Establish connection to an allowed database
+     * Establishes connection to an allowed database
      * @param schema The schema name of the database
      * @param location The location of the database
      * @return Returns a Connection to the database
@@ -64,7 +64,7 @@ public interface ScraperUtilsInterface {
     }
 
     /**
-     * Fetch a URL and return the response
+     * Fetches a URL and returns the response
      * @param url The URL to be fetched
      * @return The response body from the URL as a String
      * @throws HttpTimeoutException If the request times out
