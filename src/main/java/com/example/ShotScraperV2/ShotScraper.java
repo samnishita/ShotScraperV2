@@ -61,7 +61,7 @@ public class ShotScraper implements ScraperUtilsInterface{
 
     public void getEveryShotWithMainThread() {
         while (true) {
-            HashMap<String, String> eachPlayerHashMap = RunHandler.popConcurrentHashMap();
+            HashMap<String, String> eachPlayerHashMap = RunHandler.popQueue();
             if (eachPlayerHashMap == null) {
                 break;
             } else {
@@ -481,7 +481,7 @@ public class ShotScraper implements ScraperUtilsInterface{
     public void updateShotsForCurrentYear(String seasonTypeSelector) {
         while (true) {
             try {
-                HashMap<String, String> eachPlayerHashMap = RunHandler.popConcurrentHashMap();
+                HashMap<String, String> eachPlayerHashMap = RunHandler.popQueue();
                 if (eachPlayerHashMap == null) {
                     break;
                 }

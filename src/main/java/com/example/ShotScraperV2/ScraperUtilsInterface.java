@@ -13,7 +13,7 @@ import java.time.Duration;
 import java.util.ResourceBundle;
 
 /**
- * Provides additional functionality
+ *  Additional functionality
  */
 public interface ScraperUtilsInterface {
 

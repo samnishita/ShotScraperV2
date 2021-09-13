@@ -12,7 +12,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 
 /**
- * Scrapes and inserts NBA team and player data into the desired database
+ * Scraper for basic NBA team and player data
  */
 @Component
 public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {

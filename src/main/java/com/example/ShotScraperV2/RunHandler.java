@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Determines what parts of the scraper will be run
+ *What parts of the scraper should run
  */
 @Component
 public class RunHandler implements ScraperUtilsInterface {
@@ -293,7 +293,7 @@ public class RunHandler implements ScraperUtilsInterface {
      * Gets the player data from the front of the queue
      * @return hashMap of player info
      */
-    public static HashMap<String, String> popConcurrentHashMap() {
+    public static HashMap<String, String> popQueue() {
         return threadSafePlayerQueue.poll();
     }
 
