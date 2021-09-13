@@ -12,8 +12,18 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ResourceBundle;
 
+/**
+ * Provides additional functionality
+ */
 public interface ScraperUtilsInterface {
 
+    /**
+     * Establish connection to an allowed database
+     * @param schema The schema name of the database
+     * @param location The location of the database
+     * @return Returns a Connection to the database
+     * @throws SQLException If connection is denied
+     */
      default Connection setNewConnection(String schema, String location) throws SQLException {
          ResourceBundle reader= ResourceBundle.getBundle("application");
         if (schema.equals("nbaplayerinfov2") && location.equals("local")) {
@@ -33,17 +43,34 @@ public interface ScraperUtilsInterface {
         }
     }
 
+    /**
+     * Reads and returns the current season
+     * @return The current season
+     */
     default String getCurrentYear() {
         ResourceBundle reader= ResourceBundle.getBundle("application");
         return reader.getString("currentYear");
     }
 
+    /**
+     * Builds a season as YYYY-YY from an input year of YYYY because seasons span multiple calendar years
+     * @param year Input year as YYYY
+     * @return Season as YYYY-YY
+     */
     default String buildYear(String year) {
         int subYear = (Integer.parseInt(year) - 1899) % 100;
         String subYearString = subYear < 10 ? "0" + subYear : "" + subYear;
         return Integer.parseInt(year) + "-" + subYearString;
     }
 
+    /**
+     * Fetch a URL and return the response
+     * @param url The URL to be fetched
+     * @return The response body from the URL as a String
+     * @throws HttpTimeoutException If the request times out
+     * @throws InterruptedException If the request is interrupted
+     * @throws IOException If the request is interrupted
+     */
     default String fetchSpecificURL(String url) throws HttpTimeoutException, InterruptedException, IOException {
         Thread.sleep((long)(Math.random()*20000));
         HttpClient client = HttpClient.newHttpClient();
