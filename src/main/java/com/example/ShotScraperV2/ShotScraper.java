@@ -13,9 +13,8 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-public class ShotScraper {
+public class ShotScraper implements ScraperUtilsInterface{
     private final Logger LOGGER = LoggerFactory.getLogger(ShotScraper.class);
-    private ScraperUtilityFunctions scraperUtilityFunctions = new ScraperUtilityFunctions();
     private String schemaShots1, locationShots1, schemaShots2, locationShots2, schemaPlayers1, locationPlayers1, schemaPlayers2, locationPlayers2;
     private Connection connShots1 = null, connPlayers1 = null, connShots2 = null, connPlayers2 = null;
     private ArrayList<String> seasonTypes = new ArrayList(Arrays.asList("Preseason", "Regular%20Season", "Playoffs"));
@@ -26,10 +25,10 @@ public class ShotScraper {
 
     public ShotScraper(String schemaShots1, String locationShots1, String schemaShots2, String locationShots2, String schemaPlayers1, String locationPlayers1, String schemaPlayers2, String locationPlayers2) {
         try {
-            connShots1 = scraperUtilityFunctions.setNewConnection(schemaShots1, locationShots1);
-            connPlayers1 = scraperUtilityFunctions.setNewConnection(schemaPlayers1, locationPlayers1);
-            connShots2 = scraperUtilityFunctions.setNewConnection(schemaShots2, locationShots2);
-            connPlayers2 = scraperUtilityFunctions.setNewConnection(schemaPlayers2, locationPlayers2);
+            connShots1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1, locationShots1);
+            connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1, locationPlayers1);
+            connShots2 = ScraperUtilsInterface.super.setNewConnection(schemaShots2, locationShots2);
+            connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers2, locationPlayers2);
             this.schemaShots1 = schemaShots1;
             this.locationShots1 = locationShots1;
             this.schemaShots2 = schemaShots2;
@@ -302,7 +301,7 @@ public class ShotScraper {
                                         break;
                                 }
                             } catch (Exception ex) {
-                                ex.printStackTrace();
+                                LOGGER.error(ex.getMessage());
                             }
                         }
                         try {
@@ -334,7 +333,7 @@ public class ShotScraper {
                             stmtShot.setTime(10, sqlTime, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
                             stmtShotLocal.setTime(10, sqlTime, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
                         } catch (Exception ex) {
-                            ex.printStackTrace();
+                            LOGGER.error(ex.getMessage());
                         }
                         if (!newUniqueIds.contains(uniqueID)) {
                             newUniqueIds.add(uniqueID);
@@ -346,14 +345,12 @@ public class ShotScraper {
                                         stmtAllShot.execute();
                                         errorTries1 = 5;
                                     } catch (SQLException ex) {
-                                        ex.printStackTrace();
                                         LOGGER.error(ex.getMessage());
                                         errorTries1++;
                                     }
                                     try {
                                         stmtShot.execute();
                                     } catch (SQLException ex) {
-                                        ex.printStackTrace();
                                         LOGGER.error(ex.getMessage());
                                     }
                                 }
@@ -383,41 +380,17 @@ public class ShotScraper {
         }
     }
 
-//    private ArrayList<JSONArray> loopShotSearchIfError(String year, int id, String season) throws TimeoutException {
-//        int exceptionRetryCounter = 0;
-//        while (exceptionRetryCounter < 3) {
-//            try {
-//                return searchForShots(year, id, season);
-//            } catch (TimeoutException ex) {
-//                if (exceptionRetryCounter >= 2) {
-//                    LOGGER.error("Timeout caught in search for " + id + ": " + year + " " + season + ", Skipping");
-//                    throw new TimeoutException();
-//                } else {
-//                    exceptionRetryCounter++;
-//                    LOGGER.error("Timeout caught in search for " + id + ": " + year + " " + season + ", Retrying (" + exceptionRetryCounter + ")");
-//                }
-//            } catch (Exception ex) {
-//                ex.printStackTrace();
-//            }
-//        }
-//        return null;
-//    }
-
     private ArrayList<JSONArray> searchForShots(String year, int id, String season) {
         ArrayList<JSONArray> allShotsAsJSONArrays = new ArrayList<>();
         String url = "https://stats.nba.com/stats/shotchartdetail?AheadBehind=&CFID=33&CFPARAMS=" + year + "&ClutchTime=&Conference=&ContextFilter=&ContextMeasure=FGA&DateFrom=&DateTo=&Division=&EndPeriod=10&EndRange=28800&GROUP_ID=&GameEventID=&GameID=&GameSegment=&GroupID=&GroupMode=&GroupQuantity=5&LastNGames=0&LeagueID=00&Location=&Month=0&OnOff=&OpponentTeamID=0&Outcome=&PORound=0&Period=0&PlayerID=" + id + "&PlayerID1=&PlayerID2=&PlayerID3=&PlayerID4=&PlayerID5=&PlayerPosition=&PointDiff=&Position=&RangeType=0&RookieYear=&Season=&SeasonSegment=&SeasonType=" + season + "&ShotClockRange=&StartPeriod=1&StartRange=0&StarterBench=&TeamID=0&VsConference=&VsDivision=&VsPlayerID1=&VsPlayerID2=&VsPlayerID3=&VsPlayerID4=&VsPlayerID5=&VsTeamID=";
         try {
-            String response = scraperUtilityFunctions.fetchSpecificURL(url);
+            String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
             JSONArray rowSets = new JSONObject(response).getJSONArray("resultSets").getJSONObject(0).getJSONArray("rowSet");
             for (int index = 0; index < rowSets.length(); index++) {
                 allShotsAsJSONArrays.add(rowSets.getJSONArray(index));
             }
-//        } catch (TimeoutException ex) {
-//            LOGGER.warn("RESET caused by " + url);
-//            //throw new TimeoutException();
         } catch (Exception ex) {
             LOGGER.error(ex.getMessage());
-            //throw new TimeoutException();
         }
         return allShotsAsJSONArrays;
     }
@@ -519,13 +492,13 @@ public class ShotScraper {
                 String firstName = firstNameOrig.replaceAll("[^A-Za-z0-9]", "");
                 switch (seasonTypeSelector) {
                     case "preseason":
-                        processSingleSeasonType("preseason", "Preseason", "Preseason", "Preseason", lastName, lastNameOrig, firstName, firstNameOrig, playerID, scraperUtilityFunctions.getCurrentYear());
+                        processSingleSeasonType("preseason", "Preseason", "Preseason", "Preseason", lastName, lastNameOrig, firstName, firstNameOrig, playerID, ScraperUtilsInterface.super.getCurrentYear());
                         break;
                     case "regularseason":
-                        processSingleSeasonType("reg", "RegularSeason", "Regular%20Season", "Regular Season", lastName, lastNameOrig, firstName, firstNameOrig, playerID, scraperUtilityFunctions.getCurrentYear());
+                        processSingleSeasonType("reg", "RegularSeason", "Regular%20Season", "Regular Season", lastName, lastNameOrig, firstName, firstNameOrig, playerID, ScraperUtilsInterface.super.getCurrentYear());
                         break;
                     case "playoffs":
-                        processSingleSeasonType("playoffs", "Playoffs", "Playoffs", "Playoffs", lastName, lastNameOrig, firstName, firstNameOrig, playerID, scraperUtilityFunctions.getCurrentYear());
+                        processSingleSeasonType("playoffs", "Playoffs", "Playoffs", "Playoffs", lastName, lastNameOrig, firstName, firstNameOrig, playerID, ScraperUtilsInterface.super.getCurrentYear());
                         break;
                     default:
                         throw new IllegalStateException("Invalid season type: " + seasonTypeSelector);

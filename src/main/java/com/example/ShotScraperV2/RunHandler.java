@@ -17,10 +17,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Component
-public class RunHandler {
+public class RunHandler implements ScraperUtilsInterface {
     private Logger LOGGER = LoggerFactory.getLogger(RunHandler.class);
-    //true
-    //false
+
     private final boolean GET_TEAM_AND_PLAYER_DATA = false;
     private final boolean GET_ALL_PLAYERS = false;
     private final boolean ONLY_ACTIVE_PLAYERS = false;
@@ -46,8 +45,6 @@ public class RunHandler {
     private static int newShots = 0;
     private static ConcurrentLinkedQueue<HashMap<String, String>> threadSafeMapColumnsToValues = new ConcurrentLinkedQueue<>();
 
-
-    private ScraperUtilityFunctions scraperUtilityFunctions = new ScraperUtilityFunctions();
     @Autowired
     private AllTeamAndPlayerScraper allTeamAndPlayerScraper;
     @Autowired
@@ -103,7 +100,7 @@ public class RunHandler {
                 dataDoubleChecker.comparePlayerTables(DROP_MISMATCHED_TABLES);
             }
             if (MAKE_SHOT_LOCATION_AVERAGES) {
-                for (int year = 1996; year <= Integer.parseInt(scraperUtilityFunctions.getCurrentYear().substring(0, 4)); year++) {
+                for (int year = 1996; year <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4)); year++) {
                     databaseUpdater.createShotLocationAverages(year + "", OFFSET, databaseUpdater.getConnShots1());
 //                    databaseUpdater.createShotLocationAverages(year + "", OFFSET, databaseUpdater.getConnShots2());
                 }
@@ -111,7 +108,7 @@ public class RunHandler {
 //                databaseUpdater.createShotLocationAverages("", OFFSET, databaseUpdater.getConnShots2());
             }
             if (MAKE_ZONE_AVERAGES) {
-                for (int year = 1996; year <= Integer.parseInt(scraperUtilityFunctions.getCurrentYear().substring(0, 4)); year++) {
+                for (int year = 1996; year <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4)); year++) {
                     databaseUpdater.getZonedAverages(year + "", databaseUpdater.getConnShots1());
 //                    databaseUpdater.getZonedAverages(year + "", databaseUpdater.getConnShots2());
                 }
@@ -123,7 +120,7 @@ public class RunHandler {
 //                databaseUpdater.organizeByYear(databaseUpdater.getConnPlayers2());
             }
             if (MAKE_DISTANCE_AVERAGES) {
-                for (int year = 1996; year <= Integer.parseInt(scraperUtilityFunctions.getCurrentYear().substring(0, 4)); year++) {
+                for (int year = 1996; year <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4)); year++) {
                     databaseUpdater.getDistancesAndAvg(year + "", databaseUpdater.getConnShots1());
 //                    databaseUpdater.getZonedAverages(year + "", databaseUpdater.getConnShots2());
                 }
@@ -180,7 +177,7 @@ public class RunHandler {
                 LOGGER.info("Total New Shots Added: " + newShots);
             }
             if (DROP_ALL_EMPTY_SHOT_TABLES) {
-                Connection connShots = scraperUtilityFunctions.setNewConnection(READER.getString("shotschema1"), READER.getString("shotlocation1"));
+                Connection connShots = ScraperUtilsInterface.super.setNewConnection(READER.getString("shotschema1"), READER.getString("shotlocation1"));
                 ResultSet rs = connShots.getMetaData().getTables(READER.getString("shotschema1"), null, "%", null);
                 //Get each table title
                 int counter = 0;
@@ -204,7 +201,7 @@ public class RunHandler {
                 LOGGER.info("Final Drop Counter: " + counter);
             }
         } catch (Exception ex) {
-            ex.printStackTrace();
+           LOGGER.error(ex.getMessage());
         }
         LOGGER.info("END OF RUN");
         System.exit(0);
@@ -222,7 +219,7 @@ public class RunHandler {
         try {
             final ResourceBundle READER = ResourceBundle.getBundle("application");
             threadSafeMapColumnsToValues = new ConcurrentLinkedQueue();
-            Connection connPlayers1 = scraperUtilityFunctions.setNewConnection(READER.getString("playerschema1"), READER.getString("playerlocation1"));
+            Connection connPlayers1 = ScraperUtilsInterface.super.setNewConnection(READER.getString("playerschema1"), READER.getString("playerlocation1"));
             String sqlSelect = "SELECT * FROM player_relevant_data";
             if (ONLY_ACTIVE_PLAYERS) {
                 sqlSelect = sqlSelect + " WHERE currentlyactive=1";

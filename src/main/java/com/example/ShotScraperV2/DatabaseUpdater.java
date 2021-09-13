@@ -11,11 +11,10 @@ import java.sql.*;
 import java.util.*;
 
 @Component
-public class DatabaseUpdater {
+public class DatabaseUpdater implements ScraperUtilsInterface {
     private Logger LOGGER = LoggerFactory.getLogger(DatabaseUpdater.class);
     private Connection connShots1 = null, connPlayers1 = null, connShots2 = null, connPlayers2 = null;
     private String schemaShots1, locationShots1, schemaShots2, locationShots2, schemaPlayers1, locationPlayers1, schemaPlayers2, locationPlayers2;
-    private ScraperUtilityFunctions scraperUtilityFunctions = new ScraperUtilityFunctions();
 
     @Autowired
     public DatabaseUpdater(@Value("${shotschema1}") String schemaShots1,
@@ -27,12 +26,12 @@ public class DatabaseUpdater {
                            @Value("${playerschema2}") String schemaPlayers2,
                            @Value("${playerlocation2}") String locationPlayers2) {
         try {
-            connShots1 = scraperUtilityFunctions.setNewConnection(schemaShots1, locationShots1);
-            connPlayers1 = scraperUtilityFunctions.setNewConnection(schemaPlayers1, locationPlayers1);
-            connShots2 = scraperUtilityFunctions.setNewConnection(schemaShots2, locationShots2);
-            connPlayers2 = scraperUtilityFunctions.setNewConnection(schemaPlayers2, locationPlayers2);
+            connShots1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1, locationShots1);
+            connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1, locationPlayers1);
+            connShots2 = ScraperUtilsInterface.super.setNewConnection(schemaShots2, locationShots2);
+            connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers2, locationPlayers2);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            LOGGER.error(ex.getMessage());
             System.exit(1);
         }
         this.schemaShots1 = schemaShots1;
@@ -48,8 +47,8 @@ public class DatabaseUpdater {
     public void organizeByYear(Connection connPlayers) throws SQLException {
         //Create tables for active players for each year
         String yearString = "1996", fullYear, tableName;
-        while (Integer.parseInt(yearString.substring(0, 4)) <= Integer.parseInt(scraperUtilityFunctions.getCurrentYear().substring(0, 4))) {
-            fullYear = scraperUtilityFunctions.buildYear(yearString);
+        while (Integer.parseInt(yearString.substring(0, 4)) <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4))) {
+            fullYear = ScraperUtilsInterface.super.buildYear(yearString);
             tableName = fullYear.substring(0, 4) + "_" + fullYear.substring(5, 7) + "_active_players";
             String createTable = "CREATE TABLE IF NOT EXISTS `" + tableName + "` (\n"
                     + "  `id` int NOT NULL,\n"
@@ -83,14 +82,14 @@ public class DatabaseUpdater {
                         } catch (SQLIntegrityConstraintViolationException ex) {
 
                         } catch (Exception ex) {
-                            ex.printStackTrace();
+                            LOGGER.error(ex.getMessage());
                         }
                     }
                 }
             } catch (SQLSyntaxErrorException ex) {
-                // ex.printStackTrace();
+                LOGGER.error(ex.getMessage());
             } catch (SQLException ex) {
-                ex.printStackTrace();
+                LOGGER.error(ex.getMessage());
             }
         }
     }
@@ -105,8 +104,8 @@ public class DatabaseUpdater {
         if (year.equals("")) {
             tableName = "all_time_location_averages_offset_" + offset;
         } else {
-            tableName = scraperUtilityFunctions.buildYear(year + "").replace("-", "_") + "_location_averages_offset_" + offset;
-            sql = sql + " WHERE season = '" + scraperUtilityFunctions.buildYear(year) + "'";
+            tableName = ScraperUtilsInterface.super.buildYear(year + "").replace("-", "_") + "_location_averages_offset_" + offset;
+            sql = sql + " WHERE season = '" + ScraperUtilsInterface.super.buildYear(year) + "'";
         }
         LOGGER.info("tableName: " + tableName);
 
@@ -143,8 +142,8 @@ public class DatabaseUpdater {
                     if (rs.getInt("make") == 1) {
                         nbaAverages.get(x + "_" + y)[0] = nbaAverages.get(x + "_" + y)[0] + 1;
                     }
-                } catch (SQLException e) {
-                    e.printStackTrace();
+                } catch (SQLException ex) {
+                    LOGGER.error(ex.getMessage());
                 }
             }
             rs.close();
@@ -163,10 +162,9 @@ public class DatabaseUpdater {
                 stmt.setInt(4, (int) nbaAverages.get(eachCoordinate)[1]);
                 stmt.setBigDecimal(5, new BigDecimal(nbaAverages.get(eachCoordinate)[2]));
                 stmt.execute();
-//                LOGGER.info("(" + xySplit[0] + "," + xySplit[1] + ") AVG: " + nbaAverages.get(eachCoordinate)[2] + ", COUNT: " + nbaAverages.get(eachCoordinate)[1]);
             }
         } catch (Exception ex) {
-            ex.printStackTrace();
+            LOGGER.error(ex.getMessage());
         }
     }
 
@@ -187,7 +185,7 @@ public class DatabaseUpdater {
     }
 
     public void getZonedAverages(String year, Connection connShots) throws SQLException {
-        String tableName = year.equals("") ? "all_time_zoned_averages" : scraperUtilityFunctions.buildYear(year).replace("-", "_") + "_zoned_averages";
+        String tableName = year.equals("") ? "all_time_zoned_averages" : ScraperUtilsInterface.super.buildYear(year).replace("-", "_") + "_zoned_averages";
         connShots.prepareStatement("CREATE TABLE IF NOT EXISTS `" + tableName + "` (\n"
                 + "  `uniqueid` int NOT NULL,\n"
                 + "  `shotcount` int NOT NULL,\n"
@@ -201,7 +199,7 @@ public class DatabaseUpdater {
         }
         String sqlSelect = "SELECT make,shotzonebasic,shotzonearea,shotzonerange FROM all_shots ";
         if (!year.equals("")) {
-            sqlSelect = sqlSelect + " WHERE season = '" + scraperUtilityFunctions.buildYear(year) + "'";
+            sqlSelect = sqlSelect + " WHERE season = '" + ScraperUtilsInterface.super.buildYear(year) + "'";
         }
         ResultSet rs = connShots.prepareStatement(sqlSelect).executeQuery();
         while (rs.next()) {
@@ -332,7 +330,7 @@ public class DatabaseUpdater {
                 stmt.setBigDecimal(3, new BigDecimal(allZones.get(each)[2]));
                 stmt.execute();
             } catch (Exception ex) {
-                ex.printStackTrace();
+                LOGGER.error(ex.getMessage());
             }
         }
     }
@@ -365,7 +363,7 @@ public class DatabaseUpdater {
             try {
                 connShots.prepareStatement("INSERT INTO all_shot_types VALUES ('" + eachShotType + "')").execute();
             } catch (Exception ex) {
-                ex.printStackTrace();
+                LOGGER.error(ex.getMessage());
             }
         });
     }
@@ -373,11 +371,11 @@ public class DatabaseUpdater {
     public void updateActivePlayersListForCurrentYear(Connection connPlayers) throws SQLException {
         HashSet<Integer> activePlayersInCurrentYear = new HashSet();
         ResultSet existingActivePlayersResultSet = connPlayers.prepareStatement("SELECT id FROM "
-                + scraperUtilityFunctions.getCurrentYear().substring(0, 4) + "_" + scraperUtilityFunctions.getCurrentYear().substring(5, 7) + "_active_players").executeQuery();
+                + ScraperUtilsInterface.super.getCurrentYear().substring(0, 4) + "_" + ScraperUtilsInterface.super.getCurrentYear().substring(5, 7) + "_active_players").executeQuery();
         while (existingActivePlayersResultSet.next()) {
             activePlayersInCurrentYear.add(existingActivePlayersResultSet.getInt("id"));
         }
-        ResultSet allPlayers = connPlayers.prepareStatement("SELECT id,lastname,firstname FROM player_relevant_data WHERE mostrecentactiveyear = '" + scraperUtilityFunctions.getCurrentYear() + "'").executeQuery();
+        ResultSet allPlayers = connPlayers.prepareStatement("SELECT id,lastname,firstname FROM player_relevant_data WHERE mostrecentactiveyear = '" + ScraperUtilsInterface.super.getCurrentYear() + "'").executeQuery();
         String firstName, lastName, sqlInsert, sqlIndiv;
         int id;
         ResultSet rsInd;
@@ -390,7 +388,7 @@ public class DatabaseUpdater {
             }
             try {
                 sqlIndiv = "SELECT * FROM " + lastName.replaceAll("[^A-Za-z0-9]", "") + "_" + firstName.replaceAll("[^A-Za-z0-9]", "") + "_"
-                        + id + "_individual_data WHERE year = '" + scraperUtilityFunctions.getCurrentYear() + "'";
+                        + id + "_individual_data WHERE year = '" + ScraperUtilsInterface.super.getCurrentYear() + "'";
                 rsInd = connPlayers.prepareStatement(sqlIndiv).executeQuery();
                 while (rsInd.next()) {
                     if ((rsInd.getInt("reg") == 1 || rsInd.getInt("preseason") == 1 || rsInd.getInt("playoffs") == 1) && !activePlayersInCurrentYear.contains(id)) {
@@ -403,24 +401,24 @@ public class DatabaseUpdater {
                         } catch (SQLIntegrityConstraintViolationException ex) {
 
                         } catch (Exception ex) {
-                            ex.printStackTrace();
+                            LOGGER.error(ex.getMessage());
                         }
                     }
                 }
             } catch (SQLSyntaxErrorException ex) {
 
             } catch (SQLException ex) {
-                ex.printStackTrace();
+                LOGGER.error(ex.getMessage());
             }
         }
     }
 
     public void getDistancesAndAvg(String year, Connection connShots) {
-        String tableName = year.equals("") ? "all_time_distance_averages" : scraperUtilityFunctions.buildYear(year).replace("-", "_") + "_distance_averages";
+        String tableName = year.equals("") ? "all_time_distance_averages" : ScraperUtilsInterface.super.buildYear(year).replace("-", "_") + "_distance_averages";
         String sqlSelect = "SELECT distance,make FROM all_shots";
         LOGGER.info(tableName);
         if (!year.equals("")) {
-            sqlSelect = sqlSelect + " WHERE season = '" + scraperUtilityFunctions.buildYear(year) + "'";
+            sqlSelect = sqlSelect + " WHERE season = '" + ScraperUtilsInterface.super.buildYear(year) + "'";
         }
         try (ResultSet rs = connShots.prepareStatement(sqlSelect).executeQuery()) {
             HashMap<Integer, Double[]> mapDistToAvg = new HashMap<>();
@@ -454,13 +452,12 @@ public class DatabaseUpdater {
                     stmt.setInt(2, mapDistToAvg.get(each)[1].intValue());
                     stmt.setInt(3, mapDistToAvg.get(each)[2].intValue());
                     stmt.execute();
-//                    connShots.prepareStatement("INSERT INTO distance_averages VALUES (" + each + ", " + mapDistToAvg.get(each)[2] + ")").execute();
-                } catch (SQLException e) {
-                    e.printStackTrace();
+                } catch (SQLException ex) {
+                    LOGGER.error(ex.getMessage());
                 }
             });
         } catch (SQLException ex) {
-            ex.printStackTrace();
+            LOGGER.error(ex.getMessage());
         }
     }
 }

@@ -1,8 +1,5 @@
 package com.example.ShotScraperV2;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,17 +12,10 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ResourceBundle;
 
-public class ScraperUtilityFunctions {
-    private ResourceBundle reader = null;
-    private String currentYear;
-    private Logger LOGGER = LoggerFactory.getLogger(ScraperUtilityFunctions.class);
+public interface ScraperUtilsInterface {
 
-    public ScraperUtilityFunctions() {
-        reader = ResourceBundle.getBundle("application");
-        this.currentYear = reader.getString("currentYear");
-    }
-
-    public Connection setNewConnection(String schema, String location) throws SQLException {
+     default Connection setNewConnection(String schema, String location) throws SQLException {
+         ResourceBundle reader= ResourceBundle.getBundle("application");
         if (schema.equals("nbaplayerinfov2") && location.equals("local")) {
             return DriverManager.getConnection(reader.getString("spring.playerlocal.jdbc-url"), reader.getString("spring.playerlocal.username"), reader.getString("spring.playerlocal.password"));
         } else if (schema.equals("nbaplayerinfov2") && location.equals("remote")) {
@@ -43,11 +33,18 @@ public class ScraperUtilityFunctions {
         }
     }
 
-    public String getCurrentYear() {
-        return currentYear;
+    default String getCurrentYear() {
+        ResourceBundle reader= ResourceBundle.getBundle("application");
+        return reader.getString("currentYear");
     }
 
-    protected String fetchSpecificURL(String url) throws HttpTimeoutException, InterruptedException, IOException {
+    default String buildYear(String year) {
+        int subYear = (Integer.parseInt(year) - 1899) % 100;
+        String subYearString = subYear < 10 ? "0" + subYear : "" + subYear;
+        return Integer.parseInt(year) + "-" + subYearString;
+    }
+
+    default String fetchSpecificURL(String url) throws HttpTimeoutException, InterruptedException, IOException {
         Thread.sleep((long)(Math.random()*20000));
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
@@ -58,15 +55,7 @@ public class ScraperUtilityFunctions {
                 .header("Access-Control-Request-Method", "GET")
                 .timeout(Duration.ofSeconds(60))
                 .build();
-        LOGGER.info("Fetching " + url);
         HttpResponse response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        LOGGER.debug("Response from " + url+":\n"+response);
         return response.body().toString();
-    }
-
-    public String buildYear(String year) {
-        int subYear = (Integer.parseInt(year) - 1899) % 100;
-        String subYearString = subYear < 10 ? "0" + subYear : "" + subYear;
-        return Integer.parseInt(year) + "-" + subYearString;
     }
 }

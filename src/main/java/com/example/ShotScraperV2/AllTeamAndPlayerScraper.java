@@ -12,19 +12,17 @@ import java.util.HashMap;
 import java.util.HashSet;
 
 @Component
-public class AllTeamAndPlayerScraper {
+public class AllTeamAndPlayerScraper implements ScraperUtilsInterface{
     private final Logger LOGGER = LoggerFactory.getLogger(AllTeamAndPlayerScraper.class);
     private Connection connPlayers1 = null, connPlayers2 = null;
-
-    private ScraperUtilityFunctions scraperUtilityFunctions = new ScraperUtilityFunctions();
 
     @Autowired
     public AllTeamAndPlayerScraper(@Value("${playerschema1}") String schema1,
                                    @Value("${playerlocation1}") String location1,
                                    @Value("${playerschema2}") String schema2,
                                    @Value("${playerlocation2}") String location2) throws SQLException {
-        connPlayers1 = scraperUtilityFunctions.setNewConnection(schema1, location1);
-        connPlayers2 = scraperUtilityFunctions.setNewConnection(schema2, location2);
+        connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schema1, location1);
+        connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schema2, location2);
         createGeneralTablesIfNecessary(connPlayers1);
         createGeneralTablesIfNecessary(connPlayers2);
         createMiscTable();
@@ -85,7 +83,7 @@ public class AllTeamAndPlayerScraper {
             connPlayers1.prepareStatement(sqlInsert).execute();
             connPlayers2.prepareStatement(sqlInsert).execute();
         } catch (Exception ex) {
-
+            LOGGER.error(ex.getMessage());
         }
     }
 
@@ -104,18 +102,18 @@ public class AllTeamAndPlayerScraper {
         stmtPlayer.setString(2, playerDetails[1]);
         if (activityIndex == 3) {
             stmtPlayer.setString(3, playerDetails[2].trim());
-            stmtPlayer.setString(4, scraperUtilityFunctions.buildYear(playerDetails[4]));
-            stmtPlayer.setString(5, scraperUtilityFunctions.buildYear(playerDetails[5]));
+            stmtPlayer.setString(4, ScraperUtilsInterface.super.buildYear(playerDetails[4]));
+            stmtPlayer.setString(5, ScraperUtilsInterface.super.buildYear(playerDetails[5]));
             stmtPlayer.setInt(6, Integer.parseInt(playerDetails[3]));
         } else if (activityIndex == 2) {
             stmtPlayer.setString(3, "");
-            stmtPlayer.setString(4, scraperUtilityFunctions.buildYear(playerDetails[3]));
-            stmtPlayer.setString(5, scraperUtilityFunctions.buildYear(playerDetails[4]));
+            stmtPlayer.setString(4, ScraperUtilsInterface.super.buildYear(playerDetails[3]));
+            stmtPlayer.setString(5, ScraperUtilsInterface.super.buildYear(playerDetails[4]));
             stmtPlayer.setInt(6, Integer.parseInt(playerDetails[2]));
         } else if (activityIndex == 4) {
             stmtPlayer.setString(3, playerDetails[2].trim());
-            stmtPlayer.setString(4, scraperUtilityFunctions.buildYear(playerDetails[5]));
-            stmtPlayer.setString(5, scraperUtilityFunctions.buildYear(playerDetails[6]));
+            stmtPlayer.setString(4, ScraperUtilsInterface.super.buildYear(playerDetails[5]));
+            stmtPlayer.setString(5, ScraperUtilsInterface.super.buildYear(playerDetails[6]));
             stmtPlayer.setInt(6, Integer.parseInt(playerDetails[4]));
         }
         try {
@@ -151,7 +149,7 @@ public class AllTeamAndPlayerScraper {
     }
 
     protected void updateMostRecentActiveYear(String[] playerDetails, int index) {
-        String sqlUpdate = "UPDATE player_all_data SET mostrecentactiveyear = \"" + scraperUtilityFunctions.buildYear(playerDetails[index]) + "\" WHERE id = " + Integer.parseInt(playerDetails[0]);
+        String sqlUpdate = "UPDATE player_all_data SET mostrecentactiveyear = \"" + ScraperUtilsInterface.super.buildYear(playerDetails[index]) + "\" WHERE id = " + Integer.parseInt(playerDetails[0]);
         try {
             connPlayers2.prepareStatement(sqlUpdate).execute();
             connPlayers1.prepareStatement(sqlUpdate).execute();
@@ -159,7 +157,7 @@ public class AllTeamAndPlayerScraper {
             LOGGER.error(ex.getMessage());
         }
         if (Integer.parseInt(playerDetails[index]) >= 1996) {
-            sqlUpdate = "UPDATE player_relevant_data SET mostrecentactiveyear = \"" + scraperUtilityFunctions.buildYear(playerDetails[index]) + "\" WHERE id = " + Integer.parseInt(playerDetails[0]);
+            sqlUpdate = "UPDATE player_relevant_data SET mostrecentactiveyear = \"" + ScraperUtilsInterface.super.buildYear(playerDetails[index]) + "\" WHERE id = " + Integer.parseInt(playerDetails[0]);
             try {
                 connPlayers2.prepareStatement(sqlUpdate).execute();
                 connPlayers1.prepareStatement(sqlUpdate).execute();
@@ -171,7 +169,7 @@ public class AllTeamAndPlayerScraper {
 
     public void getTeamAndPlayerData() throws InterruptedException, IOException, SQLException {
         String url = "https://www.nba.com/stats/js/data/ptsd/stats_ptsd.js";
-        String response = scraperUtilityFunctions.fetchSpecificURL(url);
+        String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
         HashSet<Integer> allTeamIDs = getAllIds("SELECT id FROM team_data");
         HashSet<Integer> allPlayerIDs = getAllIds("SELECT id FROM player_all_data");
         HashMap<Integer, Integer> mapPlayersToCurrentlyActive = getEachPlayerCurrentlyActiveMap();

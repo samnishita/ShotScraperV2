@@ -14,21 +14,20 @@ import java.util.Arrays;
 import java.util.HashSet;
 
 @Component
-public class DataDoubleChecker {
+public class DataDoubleChecker implements ScraperUtilsInterface{
     private final Logger LOGGER = LoggerFactory.getLogger(DataDoubleChecker.class);
 
     private Connection connShots1 = null, connPlayers1 = null, connShots2 = null, connPlayers2 = null;
     private String schemaShots1, locationShots1, schemaShots2, locationShots2, schemaPlayers1, locationPlayers1, schemaPlayers2, locationPlayers2;
-    private ScraperUtilityFunctions scraperUtilityFunctions = new ScraperUtilityFunctions();
     private ArrayList<String> knownWrongShotTables = new ArrayList(Arrays.asList("Jenkins_John_203098_2014_15_Playoffs", "Ibaka_Serge_201586_2013_14_Playoffs", "Leaf_TJ_1628388_2019_20_Preseason",
             "Grant_Jerami_203924_2017_18_Playoffs", "Davis_Anthony_203076_2015_16_Preseason", "Leaf_TJ_1628388_2018_19_Preseason", "Connaughton_Pat_1626192_2019_20_RegularSeason",
             "Leonard_Kawhi_202695_2020_21_RegularSeason", "Blair_DeJuan_201971_2010_11_Preseason", "Johnson_BJ_1629168_2019_20_Preseason", "Harkless_Maurice_203090_2013_14_RegularSeason",
             "Karasev_Sergey_203508_2014_15_RegularSeason", "Johnson_Nick_203910_2014_15_Preseason", "Leaf_TJ_1628388_2017_18_RegularSeason", "Shamet_Landry_1629013_2020_21_Playoffs",
-            "Leaf_TJ_1628388_2018_19_RegularSeason","Jefferson_Richard_2210_2005_06_Playoffs","Leaf_TJ_1628388_2017_18_Preseason","Leaf_TJ_1628388_2018_19_Playoffs","Leaf_TJ_1628388_2019_20_RegularSeason",
-            "Ajinca_Alexis_201582_2015_16_Preseason","Leaf_TJ_1628388_2020_21_RegularSeason","Beverley_Patrick_201976_2015_16_RegularSeason","Leaf_TJ_1628388_2020_21_Playoffs",
-            "Johnson_BJ_1629168_2018_19_RegularSeason","Johnson_BJ_1629168_2019_20_Playoffs","Montross_Eric_376_1996_97_RegularSeason","Johnson_BJ_1629168_2019_20_RegularSeason",
-            "Alabi_Solomon_202374_2010_11_Preseason","Grant_Jerami_203924_2016_17_Playoffs","Black_Tarik_204028_2014_15_Preseason","Ajinca_Alexis_201582_2014_15_Playoffs",
-            "LeVert_Caris_1627747_2018_19_Preseason","all_time_zoned_averages","all_shot_types"));
+            "Leaf_TJ_1628388_2018_19_RegularSeason", "Jefferson_Richard_2210_2005_06_Playoffs", "Leaf_TJ_1628388_2017_18_Preseason", "Leaf_TJ_1628388_2018_19_Playoffs", "Leaf_TJ_1628388_2019_20_RegularSeason",
+            "Ajinca_Alexis_201582_2015_16_Preseason", "Leaf_TJ_1628388_2020_21_RegularSeason", "Beverley_Patrick_201976_2015_16_RegularSeason", "Leaf_TJ_1628388_2020_21_Playoffs",
+            "Johnson_BJ_1629168_2018_19_RegularSeason", "Johnson_BJ_1629168_2019_20_Playoffs", "Montross_Eric_376_1996_97_RegularSeason", "Johnson_BJ_1629168_2019_20_RegularSeason",
+            "Alabi_Solomon_202374_2010_11_Preseason", "Grant_Jerami_203924_2016_17_Playoffs", "Black_Tarik_204028_2014_15_Preseason", "Ajinca_Alexis_201582_2014_15_Playoffs",
+            "LeVert_Caris_1627747_2018_19_Preseason", "all_time_zoned_averages", "all_shot_types"));
 
     private HashSet<String> db1Rows = new HashSet<>(), db2Rows = new HashSet<>(), rowStrings = new HashSet<>(),
             rowsInDB1NotInDB2 = new HashSet<>(), rowsInDB2NotInDB1 = new HashSet<>(), entitiesInDB1NotInDB2 = new HashSet<>();
@@ -46,12 +45,12 @@ public class DataDoubleChecker {
                              @Value("nbaplayerinfo") String schemaPlayers2,
                              @Value("${playerlocation2}") String locationPlayers2) {
         try {
-            connShots1 = scraperUtilityFunctions.setNewConnection(schemaShots1, locationShots1);
-            connPlayers1 = scraperUtilityFunctions.setNewConnection(schemaPlayers1, locationPlayers1);
-            connShots2 = scraperUtilityFunctions.setNewConnection(schemaShots2, locationShots2);
-            connPlayers2 = scraperUtilityFunctions.setNewConnection(schemaPlayers2, locationPlayers2);
+            connShots1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1, locationShots1);
+            connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1, locationPlayers1);
+            connShots2 = ScraperUtilsInterface.super.setNewConnection(schemaShots2, locationShots2);
+            connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers2, locationPlayers2);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            LOGGER.error(ex.getMessage());
             System.exit(1);
         }
         this.schemaShots1 = schemaShots1;
@@ -83,6 +82,7 @@ public class DataDoubleChecker {
         LOGGER.info("DB2 Table Count: " + shotTableNamesHash2.size());
         getEntitiesInDB1NotInDB2(shotTableNamesHash1, shotTableNamesHash2, schemaShots1, schemaShots2, "Tables in " + schemaShots1 + " not in " + schemaShots2 + ":\n");
         getEntitiesInDB1NotInDB2(shotTableNamesHash2, shotTableNamesHash1, schemaShots2, schemaShots1, "Tables in " + schemaShots2 + " not in " + schemaShots1 + ":\n");
+        compareAll_ShotsTable();
         shotTableNamesHash1.stream()
                 .filter(eachTableName -> shotTableNamesHash2.contains(eachTableName))
                 .filter(eachTableName -> !eachTableName.equals("all_shots"))
@@ -97,8 +97,9 @@ public class DataDoubleChecker {
             while (playerTables.next()) {
                 playerTableNamesHash.add(playerTables.getString(3));
             }
+            playerTables.close();
         } catch (Exception ex) {
-            ex.printStackTrace();
+            LOGGER.error(ex.getMessage());
         }
         return playerTableNamesHash;
     }
@@ -149,15 +150,19 @@ public class DataDoubleChecker {
                 }
             }
         }
+        tableCounter++;
+        if (tableCounter % 1000 == 0) {
+            LOGGER.info(tableCounter + "");
+        }
     }
 
     private void compareShotTableData(String tableName, boolean dropTables) {
         db1Rows.clear();
-        db1Rows = (HashSet<String>) createStringFromRow(connShots1, tableName).clone();
+        db1Rows = createStringFromRow(connShots1, tableName);
         db2Rows.clear();
         db2Rows = createStringFromRow(connShots2, tableName);
         rowsInDB1NotInDB2.clear();
-        rowsInDB1NotInDB2 =  (HashSet<String>)getEntitiesInDB1NotInDB2(db1Rows, db2Rows, this.schemaShots1, this.schemaShots2, "Rows found in " + this.schemaShots1 + "." + tableName + " not found in " + this.schemaShots2 + "." + tableName + ": \n").clone();
+        rowsInDB1NotInDB2 = getEntitiesInDB1NotInDB2(db1Rows, db2Rows, this.schemaShots1, this.schemaShots2, "Rows found in " + this.schemaShots1 + "." + tableName + " not found in " + this.schemaShots2 + "." + tableName + ": \n");
         rowsInDB2NotInDB1.clear();
         rowsInDB2NotInDB1 = getEntitiesInDB1NotInDB2(db2Rows, db1Rows, this.schemaShots2, this.schemaShots1, "Rows found in " + this.schemaShots2 + "." + tableName + " not found in " + this.schemaShots1 + "." + tableName + ": \n");
         if ((rowsInDB1NotInDB2.size() != 0 || rowsInDB2NotInDB1.size() != 0) && !knownWrongShotTables.contains(tableName)) {
@@ -165,8 +170,6 @@ public class DataDoubleChecker {
             if (dropTables) {
                 dropMismatchedTables(tableName, connShots1, schemaShots1);
             }
-        } else {
-//            LOGGER.info("Correct table: " + tableName);
         }
         tableCounter++;
         if (tableCounter % 1000 == 0) {
@@ -191,8 +194,8 @@ public class DataDoubleChecker {
                 rowStrings.add(eachRowStringBuilder.toString());
             }
             dbResultSet.close();
-        } catch (SQLException e) {
-            e.printStackTrace();
+        } catch (SQLException ex) {
+            LOGGER.error(ex.getMessage());
         }
         return rowStrings;
     }
@@ -202,7 +205,61 @@ public class DataDoubleChecker {
             LOGGER.info("Dropping " + tableName + " from " + schema);
             conn.prepareStatement("DROP TABLE `" + schema + "`.`" + tableName + "`").execute();
         } catch (SQLException ex) {
-            ex.printStackTrace();
+            LOGGER.error(ex.getMessage());
         }
+    }
+
+    private void compareAll_ShotsTable() {
+        try {
+            HashSet<Integer> allIds = new HashSet<>();
+            ResultSet conn1Ids = connPlayers1.prepareStatement("SELECT id FROM player_relevant_data").executeQuery();
+            while (conn1Ids.next()) {
+                allIds.add(conn1Ids.getInt("id"));
+            }
+            conn1Ids.close();
+            HashSet<String> allShots1 = new HashSet<>(), allShots2 = new HashSet<>();
+            ResultSet allShotsResultSet;
+            StringBuilder shotBuilder = new StringBuilder();
+            int counter =0;
+            for (Integer eachID : allIds) {
+                allShots1.clear();
+                allShots2.clear();
+                allShotsResultSet = connShots1.prepareStatement("SELECT * FROM all_shots WHERE playerid = " + eachID).executeQuery();
+                while (allShotsResultSet.next()) {
+                    if (shotBuilder.length() > 0) {
+                        shotBuilder.delete(0, shotBuilder.length());
+                    }
+                    for (int i = 1; i <= allShotsResultSet.getMetaData().getColumnCount(); i++) {
+                        shotBuilder.append(allShotsResultSet.getString(i));
+                        if (i != allShotsResultSet.getMetaData().getColumnCount()) {
+                            shotBuilder.append("_");
+                        }
+                    }
+                    allShots1.add(shotBuilder.toString());
+                }
+                allShotsResultSet.close();
+                allShotsResultSet = connShots2.prepareStatement("SELECT * FROM all_shots WHERE playerid = " + eachID).executeQuery();
+                while (allShotsResultSet.next()) {
+                    if (shotBuilder.length() > 0) {
+                        shotBuilder.delete(0, shotBuilder.length());
+                    }
+                    for (int i = 1; i <= allShotsResultSet.getMetaData().getColumnCount(); i++) {
+                        shotBuilder.append(allShotsResultSet.getString(i));
+                        if (i != allShotsResultSet.getMetaData().getColumnCount()) {
+                            shotBuilder.append("_");
+                        }
+                    }
+                    allShots2.add(shotBuilder.toString());
+                }
+                allShotsResultSet.close();
+                getEntitiesInDB1NotInDB2(allShots1, allShots2, schemaShots1, schemaShots2, "Rows for ID " + eachID + "found in " + this.schemaShots1 + ".all_shots not found in " + this.schemaShots2 + ".all_shots: \n");
+                getEntitiesInDB1NotInDB2(allShots2, allShots1, schemaShots2, schemaShots1, "Rows for ID " + eachID + "found in " + this.schemaShots2 + ".all_shots not found in " + this.schemaShots1 + ".all_shots: \n");
+//                LOGGER.info(counter+"");
+                counter++;
+            }
+        } catch (Exception ex) {
+            LOGGER.error(ex.getMessage());
+        }
+
     }
 }

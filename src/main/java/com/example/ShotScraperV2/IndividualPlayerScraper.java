@@ -11,20 +11,20 @@ import java.util.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-public class IndividualPlayerScraper {
+public class IndividualPlayerScraper implements ScraperUtilsInterface{
     private Logger LOGGER = LoggerFactory.getLogger(IndividualPlayerScraper.class);
     private Connection connPlayers1 = null, connPlayers2 = null;
     private String schema1, schema2, location1, location2;
     private ArrayList<String> regSeasons, postSeasons, preSeasons;
 
-    private ScraperUtilityFunctions scraperUtilityFunctions = new ScraperUtilityFunctions();
 
     public IndividualPlayerScraper(String schema1, String location1, String schema2, String location2) {
         try {
-            connPlayers1 = scraperUtilityFunctions.setNewConnection(schema1, location1);
-            connPlayers2 = scraperUtilityFunctions.setNewConnection(schema2, location2);
-        } catch (SQLException e) {
-            e.printStackTrace();
+            connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schema1, location1);
+            connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schema2, location2);
+        } catch (SQLException ex) {
+            LOGGER.error(ex.getMessage());
+
         }
         this.schema1 = schema1;
         this.schema2 = schema2;
@@ -76,7 +76,7 @@ public class IndividualPlayerScraper {
                                     LOGGER.info("NO YEARS FOR " + firstName + " " + lastName + " (" + eachID + ")");
                                 }
                             } catch (Exception ex) {
-                                ex.printStackTrace();
+                                LOGGER.error(ex.getMessage());
                             }
                         } catch (TimeoutException ex) {
 
@@ -94,7 +94,7 @@ public class IndividualPlayerScraper {
             this.regSeasons = new ArrayList<>();
             this.postSeasons = new ArrayList<>();
             this.preSeasons = new ArrayList<>();
-            String response = scraperUtilityFunctions.fetchSpecificURL("https://stats.nba.com/stats/playerprofilev2?LeagueID=00&PerMode=PerGame&PlayerID=" + id);
+            String response = ScraperUtilsInterface.super.fetchSpecificURL("https://stats.nba.com/stats/playerprofilev2?LeagueID=00&PerMode=PerGame&PlayerID=" + id);
             StringBuilder sb = new StringBuilder();
             sb.append(id).append(": ");
             JSONObject responseJSON = new JSONObject(response);
@@ -108,7 +108,7 @@ public class IndividualPlayerScraper {
         } catch (HttpTimeoutException ex) {
             throw new HttpTimeoutException("");
         } catch (Exception ex) {
-            ex.printStackTrace();
+            LOGGER.error(ex.getMessage());
         }
     }
 
@@ -214,7 +214,7 @@ public class IndividualPlayerScraper {
                 }
 
                 if (existingTableCount == 1 && (Integer.parseInt(eachPlayerHashMap.get("currentlyactive")) == 1) == onlyActivePlayers) {
-                    ResultSet rsCurSeasActive = connPlayers1.prepareStatement("SELECT " + seasonType + " FROM " + playerTableName + " WHERE year = '" + scraperUtilityFunctions.getCurrentYear() + "'").executeQuery();
+                    ResultSet rsCurSeasActive = connPlayers1.prepareStatement("SELECT " + seasonType + " FROM " + playerTableName + " WHERE year = '" + ScraperUtilsInterface.super.getCurrentYear() + "'").executeQuery();
                     boolean shouldCont = true;
                     while (rsCurSeasActive.next()) {
                         if (rsCurSeasActive.getInt(seasonType) == 1) {
