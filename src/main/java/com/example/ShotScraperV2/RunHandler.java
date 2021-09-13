@@ -16,34 +16,100 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Determines what parts of the scraper will be run
+ */
 @Component
 public class RunHandler implements ScraperUtilsInterface {
     private Logger LOGGER = LoggerFactory.getLogger(RunHandler.class);
 
+    //Player scraper choices
+    /**
+     * Get basic team and player data
+     */
     private final boolean GET_TEAM_AND_PLAYER_DATA = false;
+    /**
+     * Get detailed player data for all players
+     */
     private final boolean GET_ALL_PLAYERS = false;
+    /**
+     * Get detailed player data for only active players
+     */
     private final boolean ONLY_ACTIVE_PLAYERS = false;
+    /**
+     * Disregard whether player exists in database while scraping
+     */
     private final boolean SHOULD_RERUN = false;
+    /**
+     * Get detailed player data for only players active in the current season
+     */
     private final boolean UPDATE_PLAYERS_FOR_CURRENT_YEAR_ONLY = false;
+    /**
+     * Group active players for each season
+     */
     private final boolean ORGANIZE_BY_YEAR = false;
-    //
+    //Shot scraper choices
+    /**
+     * Get detailed shot data for all players
+     */
     private final boolean GET_ALL_SHOTS = false;
+    /**
+     * Get detailed shot data for only players active in the current season
+     */
     private final boolean UPDATE_SHOTS_FOR_CURRENT_YEAR = false;
+    /**
+     * Calculate the shot percentage for spaces on the court used for hex maps. Uses the OFFSET parameter to determine the size of the spaces
+     */
     private final boolean MAKE_SHOT_LOCATION_AVERAGES = false;
+    /**
+     * Calculate the shot percentage for zones on the court used for zone maps
+     */
     private final boolean MAKE_ZONE_AVERAGES = false;
+    /**
+     * Calculate the shot percentage for each distance from the basket
+     */
     private final boolean MAKE_DISTANCE_AVERAGES = false;
+    /**
+     * Find all different types of shots present in the database
+     */
     private final boolean MAKE_PLAY_TYPE_TABLE = false;
+    /**
+     * Will drop empty shot tables if a rerun is needed
+     */
     private final boolean DROP_ALL_EMPTY_SHOT_TABLES = false;
-    //
+    //Misc scraper choices
+    /**
+     * Verify every player entry is consistent between databases
+     */
     private final boolean DOUBLE_CHECK_PLAYER_TABLES = false;
+    /**
+     * Verify every shot entry is consistent between databases
+     */
     private final boolean DOUBLE_CHECK_SHOT_TABLES = true;
+    /**
+     * Drop tables with discrepancies to rerun
+     */
     private final boolean DROP_MISMATCHED_TABLES = false;
+    /**
+     * The present season type
+     */
     private String seasonType = "reg";//preseason,playoffs
+    /**
+     * How many threads should be running
+     */
     private final int THREAD_COUNT = Runtime.getRuntime().availableProcessors();
+    /**
+     * The size of spaces when calculating shot percentages for spaces used by hex maps
+     */
     private final int OFFSET = 15;
-
+    /**
+     * Save number of new shots added to the database for logging results
+     */
     private static int newShots = 0;
-    private static ConcurrentLinkedQueue<HashMap<String, String>> threadSafeMapColumnsToValues = new ConcurrentLinkedQueue<>();
+    /**
+     * A thread safe queue accessible by all threads for retrieving the next search
+     */
+    private static ConcurrentLinkedQueue<HashMap<String, String>> threadSafePlayerQueue = new ConcurrentLinkedQueue<>();
 
     @Autowired
     private AllTeamAndPlayerScraper allTeamAndPlayerScraper;
@@ -52,8 +118,16 @@ public class RunHandler implements ScraperUtilsInterface {
     @Autowired
     private DatabaseUpdater databaseUpdater;
 
+    /**
+     * Runs the desired parts of the scraper
+     * @param allTeamAndPlayerScraper
+     * @param dataDoubleChecker
+     * @param databaseUpdater
+     */
+    //Not fully tested for deployment, some methods commented out for now
     @Autowired
     public RunHandler(AllTeamAndPlayerScraper allTeamAndPlayerScraper, DataDoubleChecker dataDoubleChecker, DatabaseUpdater databaseUpdater) {
+        //External storage must be attached for logging
         assertTrue(Files.isDirectory(Paths.get("/Volumes/easystore/AllShotScraperV2Logs")));
         this.allTeamAndPlayerScraper = allTeamAndPlayerScraper;
         this.dataDoubleChecker = dataDoubleChecker;
@@ -201,24 +275,35 @@ public class RunHandler implements ScraperUtilsInterface {
                 LOGGER.info("Final Drop Counter: " + counter);
             }
         } catch (Exception ex) {
-           LOGGER.error(ex.getMessage());
+            LOGGER.error(ex.getMessage());
         }
         LOGGER.info("END OF RUN");
         System.exit(0);
     }
 
+    /**
+     * Add new shots to the new shot count for logging purposes
+     * @param addedShots The number of new shots scraped
+     */
     public static void addToNewShotCount(int addedShots) {
         newShots += addedShots;
     }
 
+    /**
+     * Get the player data from the front of the queue
+     * @return HashMap of player info
+     */
     public static HashMap<String, String> popConcurrentHashMap() {
-        return threadSafeMapColumnsToValues.poll();
+        return threadSafePlayerQueue.poll();
     }
 
+    /**
+     * Create a queue of all players and their data for threads to poll
+     */
     private void populateThreadSafeQueueWithPlayers() {
         try {
             final ResourceBundle READER = ResourceBundle.getBundle("application");
-            threadSafeMapColumnsToValues = new ConcurrentLinkedQueue();
+            threadSafePlayerQueue = new ConcurrentLinkedQueue();
             Connection connPlayers1 = ScraperUtilsInterface.super.setNewConnection(READER.getString("playerschema1"), READER.getString("playerlocation1"));
             String sqlSelect = "SELECT * FROM player_relevant_data";
             if (ONLY_ACTIVE_PLAYERS) {
@@ -234,7 +319,7 @@ public class RunHandler implements ScraperUtilsInterface {
                 eachPlayerHashMap.put("firstactiveyear", rsPlayers.getString("firstactiveyear"));
                 eachPlayerHashMap.put("mostrecentactiveyear", rsPlayers.getString("mostrecentactiveyear"));
                 eachPlayerHashMap.put("currentlyactive", rsPlayers.getString("currentlyactive"));
-                threadSafeMapColumnsToValues.add(eachPlayerHashMap);
+                threadSafePlayerQueue.add(eachPlayerHashMap);
             }
         } catch (Exception ex) {
             LOGGER.error(ex.getMessage());
