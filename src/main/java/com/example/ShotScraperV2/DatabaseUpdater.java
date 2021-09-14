@@ -10,12 +10,27 @@ import java.math.BigDecimal;
 import java.sql.*;
 import java.util.*;
 
+/**
+ * Database updater for calculating shot averages and organizing data
+ */
 @Component
 public class DatabaseUpdater implements ScraperUtilsInterface {
     private Logger LOGGER = LoggerFactory.getLogger(DatabaseUpdater.class);
     private Connection connShots1 = null, connPlayers1 = null, connShots2 = null, connPlayers2 = null;
     private String schemaShots1, locationShots1, schemaShots2, locationShots2, schemaPlayers1, locationPlayers1, schemaPlayers2, locationPlayers2;
 
+    /**
+     * Initializes Database updater with database connections
+     *
+     * @param schemaShots1     first shot schema name
+     * @param locationShots1   first shot location
+     * @param schemaShots2     second shot schema name
+     * @param locationShots2   second shot location
+     * @param schemaPlayers1   first player schema name
+     * @param locationPlayers1 first player location
+     * @param schemaPlayers2   second player schema name
+     * @param locationPlayers2 second player location
+     */
     @Autowired
     public DatabaseUpdater(@Value("${shotschema1}") String schemaShots1,
                            @Value("${shotlocation1}") String locationShots1,
@@ -44,8 +59,14 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         this.locationPlayers2 = locationPlayers2;
     }
 
+    /**
+     * Saves a list of all players active for each year
+     *
+     * @param connPlayers connection to player database
+     * @throws SQLException If SQL queries fail
+     */
     public void organizeByYear(Connection connPlayers) throws SQLException {
-        //Create tables for active players for each year
+        //Create tables for active players for each year starting at 1996-97
         String yearString = "1996", fullYear, tableName;
         while (Integer.parseInt(yearString.substring(0, 4)) <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4))) {
             fullYear = ScraperUtilsInterface.super.buildYear(yearString);
@@ -64,6 +85,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         String firstName, lastName, sqlInsert, sqlIndiv;
         int id;
         ResultSet rsInd;
+        //Iterate through all players and add them to the tables corresponding to years they were active
         while (allPlayers.next()) {
             firstName = allPlayers.getString("firstname");
             lastName = allPlayers.getString("lastname");
@@ -94,13 +116,30 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         }
     }
 
-    public void updateMisc(String newValue, Connection connPlayers, String column) throws SQLException {
-        connPlayers.prepareStatement("UPDATE misc SET value = '" + newValue + "' WHERE type = '" + column + "'").execute();
+    /**
+     * Updates the misc parameters
+     *
+     * @param newValue    the new value
+     * @param connPlayers connection to player database
+     * @param type        the existing key
+     * @throws SQLException If the updating fails
+     */
+    public void updateMisc(String newValue, Connection connPlayers, String type) throws SQLException {
+        connPlayers.prepareStatement("UPDATE misc SET value = '" + newValue + "' WHERE type = '" + type + "'").execute();
     }
 
+    /**
+     * Calculates the shot percentage for uniformly spaced areas of the court with a given size
+     *
+     * @param year      an optional year
+     * @param offset    the size of each area
+     * @param connShots connection to shots database
+     * @throws SQLException If querying the database fails
+     */
     public void createShotLocationAverages(String year, int offset, Connection connShots) throws SQLException {
         String tableName;
         String sql = "SELECT x,y,make FROM all_shots";
+        //Generate table name
         if (year.equals("")) {
             tableName = "all_time_location_averages_offset_" + offset;
         } else {
@@ -108,7 +147,6 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
             sql = sql + " WHERE season = '" + ScraperUtilsInterface.super.buildYear(year) + "'";
         }
         LOGGER.info("tableName: " + tableName);
-
         String sqlCreateTable = "CREATE TABLE IF NOT EXISTS `" + tableName + "` (\n" +
                 "  `uniqueid` varchar(15) NOT NULL,\n" +
                 "  `xmin` int NOT NULL,\n" +
@@ -119,6 +157,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
                 "  UNIQUE KEY `" + tableName + "_UN` (`uniqueid`)\n" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci";
         connShots.prepareStatement(sqlCreateTable).execute();
+        //Create map of each area
         LinkedHashMap<String, double[]> nbaAverages = new LinkedHashMap();
         for (int j = -55; j < 400; j = j + offset) {
             for (int i = -250; i < 250; i = i + offset) {
@@ -128,15 +167,19 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         try {
             int x, y;
             ResultSet rs = connShots.prepareStatement(sql).executeQuery();
+            //For each shot
             while (rs.next()) {
+                //Skip shots too far from the basket
                 if (rs.getInt("y") >= 400) {
                     continue;
                 }
+                //Account for overflow if the court width is not perfectly divisible by the offset
                 x = ((rs.getInt("x") + 250) / offset) * offset - 250;
                 if (x >= 250) {
                     x = ((rs.getInt("x") + 250) / offset) * offset - 250 - offset;
                 }
                 y = ((rs.getInt("y") + 55) / offset) * offset - 55;
+                //Update shot count and makes for the current shot's area
                 try {
                     nbaAverages.get(x + "_" + y)[1] = nbaAverages.get(x + "_" + y)[1] + 1;
                     if (rs.getInt("make") == 1) {
@@ -150,6 +193,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
             PreparedStatement stmt;
             String sqlInsert = "INSERT INTO " + tableName + " VALUES(?,?,?,?,?)";
             String[] xySplit;
+            //Calculate the average for each area and save into database
             for (String eachCoordinate : nbaAverages.keySet()) {
                 xySplit = eachCoordinate.split("_");
                 stmt = connShots.prepareStatement(sqlInsert);
@@ -168,22 +212,49 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         }
     }
 
+    /**
+     * Gets connection to the first shot database
+     *
+     * @return connection to the first shot database
+     */
     public Connection getConnShots1() {
         return connShots1;
     }
 
+    /**
+     * Gets connection to the second shot database
+     *
+     * @return connection to the second shot database
+     */
     public Connection getConnShots2() {
         return connShots2;
     }
 
+    /**
+     * Gets connection to the first player database
+     *
+     * @return connection to the first player database
+     */
     public Connection getConnPlayers1() {
         return connPlayers1;
     }
 
+    /**
+     * Gets connection to the second player database
+     *
+     * @return connection to the second player database
+     */
     public Connection getConnPlayers2() {
         return connPlayers2;
     }
 
+    /**
+     * Calculates the shot percentages for each zone on the court
+     *
+     * @param year      an optional year
+     * @param connShots connection to shots database
+     * @throws SQLException If querying the database fails
+     */
     public void getZonedAverages(String year, Connection connShots) throws SQLException {
         String tableName = year.equals("") ? "all_time_zoned_averages" : ScraperUtilsInterface.super.buildYear(year).replace("-", "_") + "_zoned_averages";
         connShots.prepareStatement("CREATE TABLE IF NOT EXISTS `" + tableName + "` (\n"
@@ -202,6 +273,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
             sqlSelect = sqlSelect + " WHERE season = '" + ScraperUtilsInterface.super.buildYear(year) + "'";
         }
         ResultSet rs = connShots.prepareStatement(sqlSelect).executeQuery();
+        //Each area can include many defined zones
         while (rs.next()) {
             switch (rs.getString("shotzonebasic")) {
                 case "Backcourt":
@@ -321,6 +393,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
             }
         }
         rs.close();
+        //Calculate the zone percentages and save into database
         for (Integer each : allZones.keySet()) {
             allZones.get(each)[2] = allZones.get(each)[0] * 1.0 / allZones.get(each)[1];
             try {
@@ -335,6 +408,13 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         }
     }
 
+    /**
+     * Saves a shot to a hashmap and checks for a made shot
+     *
+     * @param hashmap  the hashmap to be added to
+     * @param selector the hashmap key
+     * @param make     the shot make parameter
+     */
     private void addShotToHashMap(HashMap<Integer, Double[]> hashmap, int selector, int make) {
         hashmap.get(selector)[1] = hashmap.get(selector)[1] + 1;
         if (make == 1) {
@@ -342,6 +422,12 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         }
     }
 
+    /**
+     * Finds all existing shot types and saves to database
+     *
+     * @param connShots connection to shots database
+     * @throws SQLException If querying database fails
+     */
     public void createPlayTypeTable(Connection connShots) throws SQLException {
         String sqlCreateTable = "CREATE TABLE IF NOT EXISTS all_shot_types (\n"
                 + "	playtype varchar(100) NOT NULL,\n"
@@ -358,7 +444,8 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
             playTypes.add(rs.getString("playtype").replace("shot", "Shot"));
         }
         ArrayList<String> list = new ArrayList();
-        playTypes.forEach(eachPlayType->list.add(eachPlayType));
+        playTypes.forEach(eachPlayType -> list.add(eachPlayType));
+        //Filter out "No Shot" (Why does that even exist?)
         list.stream().filter(eachShotType -> !eachShotType.equals("No Shot")).sorted().forEach(eachShotType -> {
             try {
                 connShots.prepareStatement("INSERT INTO all_shot_types VALUES ('" + eachShotType + "')").execute();
@@ -368,8 +455,15 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         });
     }
 
+    /**
+     * Updates list of all players who were active during current year
+     *
+     * @param connPlayers connection to player database
+     * @throws SQLException If querying the database fails
+     */
     public void updateActivePlayersListForCurrentYear(Connection connPlayers) throws SQLException {
         HashSet<Integer> activePlayersInCurrentYear = new HashSet();
+        //Find players already in the correct list
         ResultSet existingActivePlayersResultSet = connPlayers.prepareStatement("SELECT id FROM "
                 + ScraperUtilsInterface.super.getCurrentYear().substring(0, 4) + "_" + ScraperUtilsInterface.super.getCurrentYear().substring(5, 7) + "_active_players").executeQuery();
         while (existingActivePlayersResultSet.next()) {
@@ -383,6 +477,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
             firstName = allPlayers.getString("firstname");
             lastName = allPlayers.getString("lastname");
             id = allPlayers.getInt("id");
+            //Find players not yet in the list
             if (activePlayersInCurrentYear.contains(id)) {
                 continue;
             }
@@ -413,6 +508,12 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         }
     }
 
+    /**
+     * Calculates the shot percentage at every distance
+     *
+     * @param year      an optional year
+     * @param connShots connection to shots database
+     */
     public void getDistancesAndAvg(String year, Connection connShots) {
         String tableName = year.equals("") ? "all_time_distance_averages" : ScraperUtilsInterface.super.buildYear(year).replace("-", "_") + "_distance_averages";
         String sqlSelect = "SELECT distance,make FROM all_shots";
@@ -420,7 +521,9 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
         if (!year.equals("")) {
             sqlSelect = sqlSelect + " WHERE season = '" + ScraperUtilsInterface.super.buildYear(year) + "'";
         }
-        try (ResultSet rs = connShots.prepareStatement(sqlSelect).executeQuery()) {
+        try {
+            //Get all shots
+            ResultSet rs = connShots.prepareStatement(sqlSelect).executeQuery();
             HashMap<Integer, Double[]> mapDistToAvg = new HashMap<>();
             for (int i = 0; i < 90; i++) {
                 mapDistToAvg.put(i, new Double[]{0.0, 0.0, 0.0});
@@ -434,6 +537,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
                     mapDistToAvg.get(distance)[0] = mapDistToAvg.get(distance)[0] + 1;
                 }
             }
+            rs.close();
             String createTable = "CREATE TABLE IF NOT EXISTS " + tableName + " (\n" +
                     "\tdistance INT NOT NULL,\n" +
                     "\tshotcount INT NOT NULL,\n" +
@@ -447,7 +551,7 @@ public class DatabaseUpdater implements ScraperUtilsInterface {
             mapDistToAvg.keySet().forEach(each -> {
                 mapDistToAvg.get(each)[2] = mapDistToAvg.get(each)[0] / mapDistToAvg.get(each)[1];
                 try {
-                    PreparedStatement stmt = connShots.prepareStatement("INSERT INTO "+tableName+" VALUES (?,?,?)");
+                    PreparedStatement stmt = connShots.prepareStatement("INSERT INTO " + tableName + " VALUES (?,?,?)");
                     stmt.setInt(1, each);
                     stmt.setInt(2, mapDistToAvg.get(each)[1].intValue());
                     stmt.setInt(3, mapDistToAvg.get(each)[2].intValue());
