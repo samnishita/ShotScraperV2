@@ -93,7 +93,7 @@ public class RunHandler implements ScraperUtilsInterface {
     /**
      * The present season type
      */
-    private String seasonType = "reg";//preseason,playoffs
+    private String seasonType = "regularseason";// or preseason or playoffs
     /**
      * How many threads should be running
      */
