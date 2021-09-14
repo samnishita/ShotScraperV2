@@ -13,16 +13,39 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-public class ShotScraper implements ScraperUtilsInterface{
+/**
+ * Scraper of all shots
+ */
+public class ShotScraper implements ScraperUtilsInterface {
     private final Logger LOGGER = LoggerFactory.getLogger(ShotScraper.class);
     private String schemaShots1, locationShots1, schemaShots2, locationShots2, schemaPlayers1, locationPlayers1, schemaPlayers2, locationPlayers2;
     private Connection connShots1 = null, connPlayers1 = null, connShots2 = null, connPlayers2 = null;
     private ArrayList<String> seasonTypes = new ArrayList(Arrays.asList("Preseason", "Regular%20Season", "Playoffs"));
     private HashMap<String, Integer> teamAbbrMap;
-    private HashMap<String, String> specialTeams;
+    /**
+     * Special team abbreviations
+     */
+    private Map<String, String> specialTeams = Map.ofEntries(Map.entry("NJN", "BKN"),
+            Map.entry("VAN", "MEM"),
+            Map.entry("NOK", "NOP"),
+            Map.entry("NOH", "NOP"),
+            Map.entry("SEA", "OKC"),
+            Map.entry("CHH", "CHA"));
+    ;
     private int totalNewShotsAdded;
     private IndividualPlayerScraper individualPlayerScraper;
 
+    /**
+     * Initializes ShotScraper with database connections
+     * @param schemaShots1 first shot schema name
+     * @param locationShots1 first shot location
+     * @param schemaShots2 second shot schema name
+     * @param locationShots2 second shot location
+     * @param schemaPlayers1 first player schema name
+     * @param locationPlayers1 first player location
+     * @param schemaPlayers2 second player schema name
+     * @param locationPlayers2 second player location
+     */
     public ShotScraper(String schemaShots1, String locationShots1, String schemaShots2, String locationShots2, String schemaPlayers1, String locationPlayers1, String schemaPlayers2, String locationPlayers2) {
         try {
             connShots1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1, locationShots1);
@@ -44,23 +67,20 @@ public class ShotScraper implements ScraperUtilsInterface{
             }
             createAllShotsTable();
         } catch (Exception ex) {
-
+            LOGGER.error(ex.getMessage());
         }
-        specialTeams = new HashMap();
-        specialTeams.put("NJN", "BKN");
-        specialTeams.put("VAN", "MEM");
-        specialTeams.put("NOK", "NOP");
-        specialTeams.put("NOH", "NOP");
-        specialTeams.put("SEA", "OKC");
-        specialTeams.put("CHH", "CHA");
         totalNewShotsAdded = 0;
         final ResourceBundle READER = ResourceBundle.getBundle("application");
         this.individualPlayerScraper = new IndividualPlayerScraper(READER.getString("playerschema1"),
                 READER.getString("playerlocation1"), READER.getString("playerschema2"), READER.getString("playerlocation2"));
     }
 
+    /**
+     *Scrapes all shots for all players
+     */
     public void getEveryShotWithMainThread() {
         while (true) {
+            //Exits while loop when queue return null
             HashMap<String, String> eachPlayerHashMap = RunHandler.popQueue();
             if (eachPlayerHashMap == null) {
                 break;
@@ -104,7 +124,7 @@ public class ShotScraper implements ScraperUtilsInterface{
                                 seasonType = eachSeasonType;
                                 playerTableName = lastName + "_" + firstName + "_" + playerID + "_" + year.substring(0, 4) + "_" + year.substring(5) + "_" + eachSeasonType;
                             }
-                            //Check if table exists already in nbashots database
+                            //Check if table exists already in database
                             int tableCounter = 0;
                             ResultSet shotTablesRS = connShots1.getMetaData().getTables(this.schemaShots1, null, playerTableName, new String[]{"TABLE"});
                             while (shotTablesRS.next()) {
@@ -112,7 +132,6 @@ public class ShotScraper implements ScraperUtilsInterface{
                             }
                             //If the table doesn't already exist
                             if (tableCounter == 0) {
-                                //Get the shot data for the current parameters
                                 createIndividualSeasonTable(playerTableName);
                                 String urlSeasonType;
                                 if (eachSeasonType.equals("Preseason")) {
@@ -122,9 +141,8 @@ public class ShotScraper implements ScraperUtilsInterface{
                                 } else {
                                     urlSeasonType = "Playoffs";
                                 }
-
+                                //Get the shot data for the current parameters
                                 ArrayList<JSONArray> allShotsAsJSONArrays = searchForShots(year, playerID, urlSeasonType);
-                                //Create the table (because it won't exist)
                                 //If there is more than 1 shot recorded that player during that season
                                 if (allShotsAsJSONArrays != null && !allShotsAsJSONArrays.isEmpty()) {
                                     //Insert values into recently generated table
@@ -137,13 +155,23 @@ public class ShotScraper implements ScraperUtilsInterface{
                         }
                     }
                 } catch (Exception ex) {
-
+                    LOGGER.error(ex.getMessage());
                 }
             }
         }
         RunHandler.addToNewShotCount(totalNewShotsAdded);
     }
 
+    /**
+     * Organizes shot data for database entry
+     * @param playerTableName player table name
+     * @param firstNameOrig player's real first name
+     * @param lastNameOrig player's real last name
+     * @param year year
+     * @param seasonType season type
+     * @param allShotsAsJSONArrays list of all shots scraped for the current parameters
+     * @param existingUniqueShotIDs set of all shots already in database
+     */
     private void insertShots(String playerTableName, String firstNameOrig, String lastNameOrig, String year, String seasonType, ArrayList<JSONArray> allShotsAsJSONArrays, HashSet<String> existingUniqueShotIDs) {
         final String YEAR = year;
         final String SEASON_TYPE = seasonType;
@@ -174,8 +202,7 @@ public class ShotScraper implements ScraperUtilsInterface{
                     + ",?,?,?,?,?"
                     + ",?,?,?,?,?"
                     + ",?,?,?,?)";
-            //Prepare SQL statement for insertion
-            //For each shot
+            //Format shot data for prepared statement
             DateFormat dateFormatter = new SimpleDateFormat("yyyyMMdd");
             dateFormatter.setTimeZone(TimeZone.getTimeZone("UTC"));
             DateFormat timeFormatter = new SimpleDateFormat("mm:ss");
@@ -187,6 +214,7 @@ public class ShotScraper implements ScraperUtilsInterface{
             PreparedStatement stmtAllShot = connShots1.prepareStatement(allShotInsert);
             PreparedStatement stmtAllShotLocal = connShots2.prepareStatement(allShotInsert);
             HashMap<Integer, Integer> mapJSONArrayIndexToPreparedStatementIndex = new HashMap<>();
+            //Reorder parameters for somewhat similar grouping
             mapJSONArrayIndexToPreparedStatementIndex.put(1, 7);//gameID
             mapJSONArrayIndexToPreparedStatementIndex.put(2, 8);//gameEventID
             mapJSONArrayIndexToPreparedStatementIndex.put(3, 2);//playerID
@@ -209,8 +237,8 @@ public class ShotScraper implements ScraperUtilsInterface{
             mapJSONArrayIndexToPreparedStatementIndex.put(23, 23);//awayTeamName
             HashSet<String> newUniqueIds = new HashSet<>();
             try {
+                //Iterate through all gathered shot data and filter out shots already in database
                 for (JSONArray eachShotJSONArray : allShotsAsJSONArrays) {
-                    //allShotsAsJSONArrays.stream().forEach(eachShotJSONArray -> {
                     String uniqueID = eachShotJSONArray.getInt(3) + "-" + eachShotJSONArray.getInt(1) + "-" + eachShotJSONArray.getInt(2);
                     if (!existingUniqueShotIDs.contains(uniqueID)) {
                         Date date;
@@ -220,12 +248,14 @@ public class ShotScraper implements ScraperUtilsInterface{
                             try {
                                 //Some values are recorded as integers, some as strings
                                 switch (i) {
+                                    //UniqueID
                                     case 0:
                                         stmtAllShot.setString(1, uniqueID);
                                         stmtAllShotLocal.setString(1, uniqueID);
                                         stmtShot.setString(1, uniqueID);
                                         stmtShotLocal.setString(1, uniqueID);
                                         break;
+                                        //Normal strings
                                     case 1:
                                     case 6:
                                     case 11:
@@ -238,6 +268,7 @@ public class ShotScraper implements ScraperUtilsInterface{
                                         stmtShot.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
                                         stmtShotLocal.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
                                         break;
+                                        //Normal Integers
                                     case 2:
                                     case 3:
                                     case 5:
@@ -252,12 +283,14 @@ public class ShotScraper implements ScraperUtilsInterface{
                                         stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getInt(i));
                                         stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getInt(i));
                                         break;
+                                        //Makes
                                     case 10:
                                         stmtAllShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
                                         stmtAllShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
                                         stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
                                         stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
                                         break;
+                                        //Dates
                                     case 21:
                                         date = dateFormatter.parse(eachShotJSONArray.getString(i));
                                         sqlDate = new java.sql.Date(date.getTime());
@@ -266,6 +299,7 @@ public class ShotScraper implements ScraperUtilsInterface{
                                         stmtShot.setDate(mapJSONArrayIndexToPreparedStatementIndex.get(i), sqlDate);
                                         stmtShotLocal.setDate(mapJSONArrayIndexToPreparedStatementIndex.get(i), sqlDate);
                                         break;
+                                        //Home and away team names
                                     case 22:
                                     case 23:
                                         stmtAllShot.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
@@ -291,6 +325,7 @@ public class ShotScraper implements ScraperUtilsInterface{
                                             stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, -1);
                                             stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, -1);
                                         }
+                                        //At home
                                         if (i == 22) {
                                             int atHome = (i == 22 && eachShotJSONArray.getInt(5) == homeID) ? 1 : 0;
                                             stmtAllShot.setInt(26, atHome);
@@ -305,26 +340,31 @@ public class ShotScraper implements ScraperUtilsInterface{
                             }
                         }
                         try {
+                            //Last name
                             stmtAllShot.setString(3, LAST_NAME_ORIG);
                             stmtAllShotLocal.setString(3, LAST_NAME_ORIG);
                             stmtShot.setString(3, LAST_NAME_ORIG);
                             stmtShotLocal.setString(3, LAST_NAME_ORIG);
 
+                            //First name
                             stmtAllShot.setString(4, FIRST_NAME_ORIG);
                             stmtAllShotLocal.setString(4, FIRST_NAME_ORIG);
                             stmtShot.setString(4, FIRST_NAME_ORIG);
                             stmtShotLocal.setString(4, FIRST_NAME_ORIG);
 
+                            //Year
                             stmtAllShot.setString(5, YEAR);
                             stmtAllShotLocal.setString(5, YEAR);
                             stmtShot.setString(5, YEAR);
                             stmtShotLocal.setString(5, YEAR);
 
+                            //Season Type
                             stmtAllShot.setString(6, SEASON_TYPE);
                             stmtAllShotLocal.setString(6, SEASON_TYPE);
                             stmtShot.setString(6, SEASON_TYPE);
                             stmtShotLocal.setString(6, SEASON_TYPE);
 
+                            //Time
                             String secondsFormat = eachShotJSONArray.getInt(9) < 10 ? "0" + eachShotJSONArray.getInt(9) : eachShotJSONArray.getInt(9) + "";
                             date = timeFormatter.parse(String.format("%d:", eachShotJSONArray.getInt(8)) + secondsFormat);
                             sqlTime = new java.sql.Time(date.getTime());
@@ -335,6 +375,7 @@ public class ShotScraper implements ScraperUtilsInterface{
                         } catch (Exception ex) {
                             LOGGER.error(ex.getMessage());
                         }
+                        //Insert
                         if (!newUniqueIds.contains(uniqueID)) {
                             newUniqueIds.add(uniqueID);
                             int errorTries1 = 0;
@@ -354,15 +395,17 @@ public class ShotScraper implements ScraperUtilsInterface{
                                         LOGGER.error(ex.getMessage());
                                     }
                                 }
-                                if (errorTries2 < 3) {
-                                    try {
-                                        stmtAllShotLocal.execute();
-                                        stmtShotLocal.execute();
-                                        errorTries2 = 5;
-                                    } catch (Exception ex) {
-                                        errorTries2++;
-                                    }
-                                }
+                                errorTries2 = 5;
+                                //Not fully tested yet
+//                                if (errorTries2 < 3) {
+//                                    try {
+//                                        stmtAllShotLocal.execute();
+//                                        stmtShotLocal.execute();
+//                                        errorTries2 = 5;
+//                                    } catch (Exception ex) {
+//                                        errorTries2++;
+//                                    }
+//                                }
                                 if (errorTries1 >= 3 && errorTries1 != 5 && errorTries2 >= 3 && errorTries2 != 5) {
                                     throw new SQLException("Error inputting shots for " + playerTableName);
                                 }
@@ -380,6 +423,13 @@ public class ShotScraper implements ScraperUtilsInterface{
         }
     }
 
+    /**
+     * Fetches URL and get shot data
+     * @param year year
+     * @param id player ID
+     * @param season season type
+     * @return list of shots gathered from URL
+     */
     private ArrayList<JSONArray> searchForShots(String year, int id, String season) {
         ArrayList<JSONArray> allShotsAsJSONArrays = new ArrayList<>();
         String url = "https://stats.nba.com/stats/shotchartdetail?AheadBehind=&CFID=33&CFPARAMS=" + year + "&ClutchTime=&Conference=&ContextFilter=&ContextMeasure=FGA&DateFrom=&DateTo=&Division=&EndPeriod=10&EndRange=28800&GROUP_ID=&GameEventID=&GameID=&GameSegment=&GroupID=&GroupMode=&GroupQuantity=5&LastNGames=0&LeagueID=00&Location=&Month=0&OnOff=&OpponentTeamID=0&Outcome=&PORound=0&Period=0&PlayerID=" + id + "&PlayerID1=&PlayerID2=&PlayerID3=&PlayerID4=&PlayerID5=&PlayerPosition=&PointDiff=&Position=&RangeType=0&RookieYear=&Season=&SeasonSegment=&SeasonType=" + season + "&ShotClockRange=&StartPeriod=1&StartRange=0&StarterBench=&TeamID=0&VsConference=&VsDivision=&VsPlayerID1=&VsPlayerID2=&VsPlayerID3=&VsPlayerID4=&VsPlayerID5=&VsTeamID=";
@@ -395,6 +445,10 @@ public class ShotScraper implements ScraperUtilsInterface{
         return allShotsAsJSONArrays;
     }
 
+    /**
+     * Creates large shot table
+     * @throws SQLException If creating table fails
+     */
     protected void createAllShotsTable() throws SQLException {
         String createAllShotTable = "CREATE TABLE IF NOT EXISTS all_shots (\n" +
                 "`uniqueshotid` varchar(100) NOT NULL,\n" +
@@ -437,6 +491,11 @@ public class ShotScraper implements ScraperUtilsInterface{
         connShots2.prepareStatement(createAllShotTable).execute();
     }
 
+    /**
+     * Creates a shot table for a single player
+     * @param playerTableName table name
+     * @throws SQLException If creating table fails
+     */
     protected void createIndividualSeasonTable(String playerTableName) throws SQLException {
         String createTable = "CREATE TABLE IF NOT EXISTS " + playerTableName + " (\n"
                 + "	uniqueshotid varchar(100) NOT NULL,\n"
@@ -478,6 +537,10 @@ public class ShotScraper implements ScraperUtilsInterface{
         connShots2.prepareStatement(createTable).execute();
     }
 
+    /**
+     * Updates shots only for current year
+     * @param seasonTypeSelector the season type
+     */
     public void updateShotsForCurrentYear(String seasonTypeSelector) {
         while (true) {
             try {
@@ -510,6 +573,19 @@ public class ShotScraper implements ScraperUtilsInterface{
         }
     }
 
+    /**
+     * Scrapes shot data for a single season type for a single player
+     * @param seasonTypeQuery season type for SQL query
+     * @param seasonTypeTableName season type for table name
+     * @param seasonTypeURL season type for URL
+     * @param seasonTypeDataEntry season type for table data entry
+     * @param lastName player's modified last name
+     * @param lastNameOrig player's real last name
+     * @param firstName player's modified first name
+     * @param firstNameOrig player's real first name
+     * @param playerID player ID
+     * @param currentYear current year
+     */
     private void processSingleSeasonType(String seasonTypeQuery, String seasonTypeTableName, String seasonTypeURL, String seasonTypeDataEntry, String lastName, String lastNameOrig, String firstName, String firstNameOrig, int playerID, String currentYear) {
         try {
             String sqlGetSeasonActivity = "SELECT " + seasonTypeQuery + " FROM " + lastName + "_" + firstName + "_" + playerID + "_individual_data WHERE year = \"" + currentYear + "\"";
@@ -528,7 +604,7 @@ public class ShotScraper implements ScraperUtilsInterface{
                 }
             }
         } catch (Exception ex) {
-
+            LOGGER.error(ex.getMessage());
         }
     }
 }
