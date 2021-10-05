@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.ResourceBundle;
 
 /**
  * Scraper for basic NBA team and player data
@@ -22,26 +23,64 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      */
     private Connection connPlayers1 = null;
     /**
-     * Connection to first second database
+     * Connection to second player database
      */
     private Connection connPlayers2 = null;
+    /**
+     * Database schema names
+     */
+    private String schema1, schema2;
 
     /**
      * Establishes connections to databases
      *
-     * @param schema1   name of first database schema
-     * @param location1 location of first database
-     * @param schema2   name of second database schema
-     * @param location2 location of second database schema
+     * @param schema1 name of first database schema
+     * @param schema2 name of second database schema
      * @throws SQLException If connections to databases are denied
      */
     @Autowired
     public AllTeamAndPlayerScraper(@Value("${playerschema1}") String schema1,
-                                   @Value("${playerlocation1}") String location1,
-                                   @Value("${playerschema2}") String schema2,
-                                   @Value("${playerlocation2}") String location2) throws SQLException {
-        connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schema1, location1);
-        connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schema2, location2);
+                                   @Value("${playerschema2}") String schema2) throws SQLException {
+        connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schema1);
+        connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schema2);
+        this.schema1 = schema1;
+        this.schema2 = schema2;
+    }
+
+    /**
+     * Sets database connections to a single test database for testing
+     *
+     * @param conn connection to test database
+     */
+    protected void setTestConnectionsAsSingleDatabase(Connection conn) {
+        this.connPlayers1 = conn;
+        this.connPlayers2 = conn;
+    }
+
+    /**
+     * Scrapes all basic team data and all basic player data
+     *
+     * @throws InterruptedException If fetching the site is interrupted
+     * @throws IOException          If fetching the site is interrupted
+     * @throws SQLException         If inserting the data into a database fails
+     */
+    public void getTeamAndPlayerData() throws InterruptedException, IOException, SQLException {
+        createGeneralTablesIfNecessary(connPlayers1, schema1);
+        createGeneralTablesIfNecessary(connPlayers2, schema2);
+        //Record updated players, activity status, and active years for logging the results
+        HashMap<String, Integer> updatedPlayerActivities = new HashMap();
+        HashMap<String, Integer> updatedLatestActiveYears = new HashMap();
+        String response = ScraperUtilsInterface.super.fetchSpecificURL("https://www.nba.com/stats/js/data/ptsd/stats_ptsd.js");
+        //Parse response
+        String[] splitResponse = response.split("\"teams\"")[1].split("\"players\"");
+        String[] teams = splitResponse[0].split("\\]\\]");
+        String[] players = splitResponse[1].split("\\]");
+        //Parse the team data
+        processTeamData(teams, connPlayers1, connPlayers2);
+        //Parse the player data
+        processPlayerData(players, updatedPlayerActivities, updatedLatestActiveYears, connPlayers1, connPlayers2);
+        //Log results
+        logScrapingResults(updatedPlayerActivities, updatedLatestActiveYears);
     }
 
     /**
@@ -49,15 +88,23 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      * <p>
      * The misc table is initialized with specific fields
      *
-     * @param conn the connection to the desired database
-     * @throws SQLException If a connection to the desired database cannot be established
+     * @param conn   the connection to the desired database
+     * @param schema the database schema
+     * @throws SQLException If table creation fails
      */
-    private void createGeneralTablesIfNecessary(Connection conn) throws SQLException {
+    protected void createGeneralTablesIfNecessary(Connection conn, String schema) throws SQLException {
         HashSet<String> allPlayerTables = new HashSet();
-        ResultSet allTablesRS = conn.prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_schema = 'nbaplayerinfov2'").executeQuery();
+        ResourceBundle reader = ResourceBundle.getBundle("application");
+        String sqlSelect = "SELECT table_name FROM information_schema.tables";
+        if (!schema.equals("")) {
+            sqlSelect = sqlSelect + " WHERE table_schema = '" + reader.getString("spring." + schema + ".schemaname") + "'";
+        }
+        //Get all tables and create if tables don't exist
+        ResultSet allTablesRS = conn.prepareStatement(sqlSelect).executeQuery();
         while (allTablesRS.next()) {
             allPlayerTables.add(allTablesRS.getString("table_name"));
         }
+        allTablesRS.close();
         if (!allPlayerTables.contains("player_all_data")) {
             createLargePlayerTable("player_all_data", conn);
         }
@@ -84,6 +131,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
                     + ")\n"
                     + "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;";
             conn.prepareStatement(sql).execute();
+            //Initialize misc with parameter types
             try {
                 String sqlInsert = "INSERT INTO misc (type,value) VALUES ('version',null),('announcement',null),('lastshotsadded',null),('current year', null)";
                 conn.prepareStatement(sqlInsert).execute();
@@ -115,13 +163,13 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Gets all entries for column 'id' for given sql query
+     * Gets all entries for column 'id' for given SQL query
      *
      * @param sql query to be executed
      * @return hashSet of all IDs
      * @throws SQLException If the query fails
      */
-    private HashSet getAllIds(String sql) throws SQLException {
+    private HashSet<Integer> getAllIds(String sql, Connection connPlayers1, Connection connPlayers2) throws SQLException {
         ResultSet resultSet1 = connPlayers1.prepareStatement(sql).executeQuery();
         ResultSet resultSet2 = connPlayers2.prepareStatement(sql).executeQuery();
         HashSet<Integer> uniqueIds = new HashSet();
@@ -129,7 +177,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
             uniqueIds.add(resultSet1.getInt("id"));
         }
         while (resultSet2.next()) {
-            uniqueIds.add(resultSet1.getInt("id"));
+            uniqueIds.add(resultSet2.getInt("id"));
         }
         resultSet1.close();
         resultSet2.close();
@@ -145,7 +193,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      * @param activityIndex array index of data that indicates whether the player is active. Some players have more or fewer than two parts to their name. Active players have an additional parameter of their current team
      * @throws SQLException If preparing the SQL statement fails
      */
-    private void insertPlayerData(String insertPlayer, String[] playerDetails, Connection conn, int activityIndex) throws SQLException {
+    protected void insertPlayerData(String insertPlayer, String[] playerDetails, Connection conn, int activityIndex) throws SQLException {
         PreparedStatement stmtPlayer = conn.prepareStatement(insertPlayer);
         stmtPlayer.setInt(1, Integer.parseInt(playerDetails[0]));
         stmtPlayer.setString(2, playerDetails[1]);
@@ -161,7 +209,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
             stmtPlayer.setString(4, ScraperUtilsInterface.super.buildYear(playerDetails[3]));
             stmtPlayer.setString(5, ScraperUtilsInterface.super.buildYear(playerDetails[4]));
             stmtPlayer.setInt(6, Integer.parseInt(playerDetails[2]));
-            //Some players have a three names
+            //Some players have three names
         } else if (activityIndex == 4) {
             stmtPlayer.setString(3, playerDetails[2].trim());
             stmtPlayer.setString(4, ScraperUtilsInterface.super.buildYear(playerDetails[5]));
@@ -176,14 +224,14 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Maps each player ID to their current active status
+     * Maps each player's current active status to their player ID
      *
      * @return hashmap with a key of player ID and a value of their currently active status
      * @throws SQLException If SQL query fails
      */
-    private HashMap getEachPlayerCurrentlyActiveMap() throws SQLException {
+    private HashMap<Integer, Integer> getEachPlayerCurrentlyActiveMap(Connection connPlayers1) throws SQLException {
         ResultSet allPlayersWithCurrentlyActiveRS = connPlayers1.prepareStatement("SELECT id,currentlyactive from player_all_data ").executeQuery();
-        HashMap<Integer, Integer> mapPlayerToCurrentlyActive = new HashMap<>();
+        HashMap<Integer, Integer> mapPlayerToCurrentlyActive = new HashMap();
         while (allPlayersWithCurrentlyActiveRS.next()) {
             mapPlayerToCurrentlyActive.put(allPlayersWithCurrentlyActiveRS.getInt("id"), allPlayersWithCurrentlyActiveRS.getInt("currentlyactive"));
         }
@@ -191,12 +239,12 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Maps each player ID to their most recent active year
+     * Maps each player's most recent active year to their player ID
      *
      * @return hashmap with a key of player ID and a value of their most recent active year
      * @throws SQLException If SQL query fails
      */
-    private HashMap getEachPlayerRecentYearMap() throws SQLException {
+    private HashMap<Integer, Integer> getEachPlayerRecentYearMap(Connection connPlayers1) throws SQLException {
         ResultSet allPlayersRecentYearRS = connPlayers1.prepareStatement("SELECT id,mostrecentactiveyear from player_all_data ").executeQuery();
         HashMap<Integer, Integer> mapPlayerToRecentYear = new HashMap<>();
         while (allPlayersRecentYearRS.next()) {
@@ -205,42 +253,30 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
         return mapPlayerToRecentYear;
     }
 
-
     /**
      * Updates a player's currently active status to active or inactive
      *
-     * @param tableName the able name to update
-     * @param isActive  the new activity status
-     * @param id        the player's ID
-     * @param conn      the database connection
+     * @param isActive     the new activity status
+     * @param id           the player's ID
+     * @param connPlayers1 the first database connection
+     * @param connPlayers2 the second database connection
      * @throws SQLException If updating fails
      */
-    private void updateCurrentlyActive(String tableName, int isActive, String id, Connection conn) throws SQLException {
-        PreparedStatement stmt = conn.prepareStatement("UPDATE " + tableName + " SET currentlyactive = ? WHERE id = ?");
-        stmt.setInt(1, isActive);
-        stmt.setString(2, id);
-        stmt.execute();
-    }
-
-    /**
-     * Updates a player's most recent active year
-     *
-     * @param playerDetails the player's basic information
-     * @param index         the index of the player's most recent active year
-     */
-    protected void updateMostRecentActiveYear(String[] playerDetails, int index) {
-        String sqlUpdate = "UPDATE player_all_data SET mostrecentactiveyear = \"" + ScraperUtilsInterface.super.buildYear(playerDetails[index]) + "\" WHERE id = " + Integer.parseInt(playerDetails[0]);
-        try {
-            connPlayers2.prepareStatement(sqlUpdate).execute();
-            connPlayers1.prepareStatement(sqlUpdate).execute();
-        } catch (SQLException ex) {
-            LOGGER.error(ex.getMessage());
-        }
-        if (Integer.parseInt(playerDetails[index]) >= 1996) {
-            sqlUpdate = "UPDATE player_relevant_data SET mostrecentactiveyear = \"" + ScraperUtilsInterface.super.buildYear(playerDetails[index]) + "\" WHERE id = " + Integer.parseInt(playerDetails[0]);
+    private void updateCurrentlyActive(int isActive, String id, Connection connPlayers1, Connection connPlayers2) {
+        String[] tableNames = new String[]{"player_all_data", "player_relevant_data"};
+        for (String eachTableName : tableNames) {
+            String sqlUpdate = "UPDATE " + eachTableName + " SET currentlyactive = ? WHERE id = ?";
             try {
-                connPlayers2.prepareStatement(sqlUpdate).execute();
-                connPlayers1.prepareStatement(sqlUpdate).execute();
+                PreparedStatement stmt = connPlayers1.prepareStatement(sqlUpdate);
+                stmt.setInt(1, isActive);
+                stmt.setString(2, id);
+                stmt.execute();
+                if (connPlayers1 != connPlayers2) {
+                    stmt = connPlayers2.prepareStatement(sqlUpdate);
+                    stmt.setInt(1, isActive);
+                    stmt.setString(2, id);
+                    stmt.execute();
+                }
             } catch (SQLException ex) {
                 LOGGER.error(ex.getMessage());
             }
@@ -248,71 +284,130 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Scrapes all basic team data and all basic player data
+     * Updates a player's most recent active year
      *
-     * @throws InterruptedException If fetching the site is interrupted
-     * @throws IOException          If fetching the site is interrupted
-     * @throws SQLException         If inserting the data into a database fails
+     * @param playerDetails the player's basic information
+     * @param index         the index of the player's most recent active year
+     * @param connPlayers1  the first database connection
+     * @param connPlayers2  the second database connection
      */
-    public void getTeamAndPlayerData() throws InterruptedException, IOException, SQLException {
-        createGeneralTablesIfNecessary(connPlayers1);
-        createGeneralTablesIfNecessary(connPlayers2);
-        String url = "https://www.nba.com/stats/js/data/ptsd/stats_ptsd.js";
-        String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
-        HashSet<Integer> allTeamIDs = getAllIds("SELECT id FROM team_data");
-        HashSet<Integer> allPlayerIDs = getAllIds("SELECT id FROM player_all_data");
-        HashMap<Integer, Integer> mapPlayersToCurrentlyActive = getEachPlayerCurrentlyActiveMap();
-        HashMap<Integer, Integer> mapPlayersToRecentYear = getEachPlayerRecentYearMap();
-        //Record updated players, activity status, and active years for logging the results
-        HashMap<String, Integer> updatedPlayerActivities = new HashMap();
-        HashMap<String, Integer> updatedLatestActiveYears = new HashMap();
-        String[] data = response.split("\"teams\"")[1].split("\"players\"");
-        String[] teams = data[0].split("\\]\\]");
-        String[] players = data[1].split("\\]");
-        String[] teamDetails, playerDetails;
-        //Parse the team data
+    protected void updateMostRecentActiveYear(String[] playerDetails, int index, Connection connPlayers1, Connection connPlayers2) {
+        String[] tableNames = new String[]{"player_all_data", "player_relevant_data"};
+        for (String eachTableName : tableNames) {
+            if (eachTableName.equals("player_all_data") || (eachTableName.equals("player_relevant_data") && Integer.parseInt(playerDetails[index]) >= 1996)) {
+                String sqlUpdate = "UPDATE " + eachTableName + " SET mostrecentactiveyear = ? WHERE id = ?";
+                try {
+                    PreparedStatement stmt = connPlayers1.prepareStatement(sqlUpdate);
+                    stmt.setString(1, ScraperUtilsInterface.super.buildYear(playerDetails[index]));
+                    stmt.setInt(2, Integer.parseInt(playerDetails[0]));
+                    stmt.execute();
+                    if (connPlayers1 != connPlayers2) {
+                        stmt = connPlayers2.prepareStatement(sqlUpdate);
+                        stmt.setString(1, ScraperUtilsInterface.super.buildYear(playerDetails[index]));
+                        stmt.setInt(2, Integer.parseInt(playerDetails[0]));
+                        stmt.execute();
+                    }
+                } catch (SQLException ex) {
+                    LOGGER.error(ex.getMessage());
+                }
+            }
+        }
+    }
+
+
+    /**
+     * Inserts team information into database
+     *
+     * @param conn        connection to database
+     * @param teamDetails array of team information
+     */
+    private void addTeamToDatabase(Connection conn, String[] teamDetails) {
+        try {
+            String insertTeam = "INSERT INTO team_data(id, abbr, casualname, firstname, secondname) VALUES (?,?,?,?,?)";
+            PreparedStatement stmtTeam = conn.prepareStatement(insertTeam);
+            stmtTeam.setInt(1, Integer.parseInt(teamDetails[0]));
+            stmtTeam.setString(2, teamDetails[1]);
+            stmtTeam.setString(3, teamDetails[2]);
+            stmtTeam.setString(4, teamDetails[3]);
+            stmtTeam.setString(5, teamDetails[4]);
+            stmtTeam.execute();
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    protected void processTeamData(String[] teams, Connection connPlayers1, Connection connPlayers2) throws SQLException {
+        HashSet<Integer> allTeamIDs = getAllIds("SELECT id FROM team_data", connPlayers1, connPlayers2);
+        String[] teamDetails;
         for (int teamIndex = 0; teamIndex < teams.length; teamIndex++) {
-            teamDetails = (teamIndex == 0 ? teams[teamIndex] : teams[teamIndex].replaceFirst(",", "")).replaceAll("[\\[\\]\\:\\}\\;\"]", "").split("\\,");
+            /*
+                Remove leading comma except for first entry
+                Replace non-alphanumeric characters
+                Split on comma
+             */
+            teamDetails = (teamIndex == 0 ? teams[teamIndex] : teams[teamIndex].replaceFirst(",", ""))
+                    .replaceAll("[\\[\\]\\:\\}\\;\"]", "")
+                    .split("\\,");
+            //Check database for existing teams
             if (!teamDetails[0].equals("") && !allTeamIDs.contains(Integer.parseInt(teamDetails[0]))) {
                 LOGGER.info("Team does not exist in DB: " + teamDetails[3] + " " + teamDetails[4]);
                 addTeamToDatabase(connPlayers1, teamDetails);
-                addTeamToDatabase(connPlayers2, teamDetails);
+                if (connPlayers1 != connPlayers2) {
+                    addTeamToDatabase(connPlayers2, teamDetails);
+                }
             } else {
+                //Some entries are empty
                 if (teamDetails.length > 3) {
                     LOGGER.info("Team already exists in DB: " + teamDetails[3] + " " + teamDetails[4]);
                 }
             }
         }
-        //Parse the player data
+    }
+
+    protected void processPlayerData(String[] players, HashMap<String, Integer> updatedPlayerActivities, HashMap<String, Integer> updatedLatestActiveYears, Connection connPlayers1, Connection connPlayers2) throws SQLException {
         String insertPlayerAll = "INSERT INTO player_all_data (id, lastname ,firstname,firstactiveyear,mostrecentactiveyear,currentlyactive) VALUES (?,?,?,?,?,?) ";
+        String insertPlayerRelevant = "INSERT INTO player_relevant_data (id, lastname ,firstname,firstactiveyear,mostrecentactiveyear,currentlyactive) VALUES (?,?,?,?,?,?) ";
+        //Create array of player detail arrays
+        String[] playerDetails;
+        int[] importantIndexes;
+        //Get ids already in database
+        HashSet<Integer> allPlayerIDs = getAllIds("SELECT id FROM player_all_data", connPlayers1, connPlayers2);
+        HashMap<Integer, Integer> mapPlayersToCurrentlyActive = getEachPlayerCurrentlyActiveMap(connPlayers1);
+        HashMap<Integer, Integer> mapPlayersToRecentYear = getEachPlayerRecentYearMap(connPlayers1);
+        //Iterate through array of player detail arrays
         for (int playerIndex = 0; playerIndex < players.length; playerIndex++) {
-            playerDetails = (playerIndex == 0 ? players[playerIndex] : players[playerIndex].replaceFirst(",", "")).replaceAll("[\\[\\]\\:\\}\\;\"]", "").split("\\,");
-            int activityIndex = 0;
-            int firstYearIndex = 0;
-            int latestYearIndex = 0;
-            //Find array index of the player activity status
-            for (int j = 0; j < playerDetails.length; j++) {
-                if ((playerDetails[j].equals("0") || playerDetails[j].equals("1")) && activityIndex == 0) {
-                    activityIndex = j;
-                }
-                if (playerDetails[j].matches("-?\\d+") && playerDetails[j].length() == 4 && firstYearIndex == 0) {
-                    firstYearIndex = j;
-                    latestYearIndex = j + 1;
-                }
-            }
+            /* For each player detail array:
+                Remove leading comma except for first entry
+                Replace non-alphanumeric characters
+                Split on comma
+             */
+            playerDetails = (playerIndex == 0 ? players[playerIndex] : players[playerIndex].replaceFirst(",", ""))
+                    .replaceAll("[\\[\\]\\:\\}\\;\"]", "")
+                    .split("\\,");
+            //Get activity, first year, latest year indexes
+            importantIndexes = findImportantIndexes(playerDetails);
+            int activityIndex = importantIndexes[0];
+            int firstYearIndex = importantIndexes[1];
+            int latestYearIndex = importantIndexes[2];
             if (activityIndex == 0 || firstYearIndex == 0 || latestYearIndex == 0) {
                 continue;
             }
-            //Check if player already exists in the database
+            //Check if player exists in all players database
             if (!playerDetails[0].equals("") && !allPlayerIDs.contains(Integer.parseInt(playerDetails[0]))) {
+                //If player doesn't already exist, add to database
                 LOGGER.info("Player does not exist in DB: " + playerDetails[2] + " " + playerDetails[1]);
                 insertPlayerData(insertPlayerAll, playerDetails, connPlayers1, activityIndex);
-                insertPlayerData(insertPlayerAll, playerDetails, connPlayers2, activityIndex);
-                if (Integer.parseInt(playerDetails[latestYearIndex]) >= 1996) {
-                    String insertPlayer2 = "INSERT INTO player_relevant_data (id, lastname ,firstname,firstactiveyear,mostrecentactiveyear,currentlyactive) VALUES (?,?,?,?,?,?) ";
-                    insertPlayerData(insertPlayer2, playerDetails, connPlayers1, activityIndex);
-                    insertPlayerData(insertPlayer2, playerDetails, connPlayers2, activityIndex);
+                if (connPlayers1 != connPlayers2) {
+                    insertPlayerData(insertPlayerAll, playerDetails, connPlayers2, activityIndex);
                 }
+                //Relevant players only after 1996-97
+                if (Integer.parseInt(playerDetails[latestYearIndex]) >= 1996) {
+                    insertPlayerData(insertPlayerRelevant, playerDetails, connPlayers1, activityIndex);
+                    if (connPlayers1 != connPlayers2) {
+                        insertPlayerData(insertPlayerRelevant, playerDetails, connPlayers2, activityIndex);
+                    }
+                }
+                //Record for logging
                 updatedPlayerActivities.put(playerDetails[2] + " " + playerDetails[1], Integer.parseInt(playerDetails[activityIndex]));
                 updatedLatestActiveYears.put(playerDetails[2] + " " + playerDetails[1], Integer.parseInt(playerDetails[latestYearIndex]));
             } else {
@@ -321,25 +416,56 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
                         && Integer.parseInt(playerDetails[latestYearIndex]) == mapPlayersToRecentYear.get(Integer.parseInt(playerDetails[0]))) {
                     continue;
                 }
+                //If scraped activity status is different from the activity status in database
                 if (Integer.parseInt(playerDetails[activityIndex]) != mapPlayersToCurrentlyActive.get(Integer.parseInt(playerDetails[0]))) {
-                    //Set the player as active in both tables
+                    //Set the player as (in)active in both tables
                     int activity = Integer.parseInt(playerDetails[activityIndex]);
-                    updateCurrentlyActive("player_all_data", activity, playerDetails[0], connPlayers1);
-                    updateCurrentlyActive("player_relevant_data", activity, playerDetails[0], connPlayers1);
-                    updateCurrentlyActive("player_all_data", activity, playerDetails[0], connPlayers2);
-                    updateCurrentlyActive("player_relevant_data", activity, playerDetails[0], connPlayers2);
+                    updateCurrentlyActive(activity, playerDetails[0], connPlayers1, connPlayers2);
                     LOGGER.info("Updated " + playerDetails[1] + "," + playerDetails[2] + " CurrentlyActive with " + activity);
+                    //Log activity changed
                     updatedPlayerActivities.put(playerDetails[2] + " " + playerDetails[1], activity);
                 }
                 //If the most recent active year is inconsistent with the database
                 if (Integer.parseInt(playerDetails[latestYearIndex]) != mapPlayersToRecentYear.get(Integer.parseInt(playerDetails[0]))) {
-                    updateMostRecentActiveYear(playerDetails, latestYearIndex);
+                    updateMostRecentActiveYear(playerDetails, latestYearIndex, connPlayers1, connPlayers2);
                     LOGGER.info("Updated " + playerDetails[1] + "," + playerDetails[2] + " MostRecentActiveYear from "
                             + mapPlayersToRecentYear.get(Integer.parseInt(playerDetails[0])) + " to " + playerDetails[latestYearIndex]);
+                    //Log changes
                     updatedLatestActiveYears.put(playerDetails[2] + " " + playerDetails[1], Integer.parseInt(playerDetails[latestYearIndex]));
                 }
             }
         }
+    }
+
+    /**
+     * Finds the indexes of current player activity status, first active year, and last active year
+     *
+     * @param playerDetails Array of player information
+     * @return Array of indexes
+     */
+    protected int[] findImportantIndexes(String[] playerDetails) {
+        //Activity, first year, latest year
+        int[] indexes = new int[]{0, 0, 0};
+        //Find array index of the player activity status
+        for (int j = 0; j < playerDetails.length; j++) {
+            if ((playerDetails[j].equals("0") || playerDetails[j].equals("1")) && indexes[0] == 0) {
+                indexes[0] = j;
+            }
+            if (playerDetails[j].matches("-?\\d+") && playerDetails[j].length() == 4 && indexes[1] == 0) {
+                indexes[1] = j;
+                indexes[2] = j + 1;
+            }
+        }
+        return indexes;
+    }
+
+    /**
+     * Logs to console the changes applied to player database
+     *
+     * @param updatedPlayerActivities  HashMap with K,V pairs of PlayerName, Activity Status
+     * @param updatedLatestActiveYears HashMap with K,V pairs of PlayerName, Latest Active Year
+     */
+    private void logScrapingResults(HashMap<String, Integer> updatedPlayerActivities, HashMap<String, Integer> updatedLatestActiveYears) {
         //Log results if there are changes made
         if (!updatedPlayerActivities.isEmpty()) {
             StringBuilder updatedPlayersOutput = new StringBuilder("Updated Player Activity:\n");
@@ -355,27 +481,6 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
             LOGGER.info(updatedPlayersOutput.toString());
         } else {
             LOGGER.info("No player latest years updated");
-        }
-        LOGGER.info("End of getTeamAndPlayerData()");
-    }
-
-    /**
-     * Inserts team information into database
-     * @param conn connection to database
-     * @param teamDetails array of team information
-     */
-    private void addTeamToDatabase(Connection conn, String[] teamDetails) {
-        try {
-            String insertTeam = "INSERT INTO team_data(id, abbr, casualname, firstname, secondname) VALUES (?,?,?,?,?)";
-            PreparedStatement stmtTeam = conn.prepareStatement(insertTeam);
-            stmtTeam.setInt(1, Integer.parseInt(teamDetails[0]));
-            stmtTeam.setString(2, teamDetails[1]);
-            stmtTeam.setString(3, teamDetails[2]);
-            stmtTeam.setString(4, teamDetails[3]);
-            stmtTeam.setString(5, teamDetails[4]);
-            stmtTeam.execute();
-        } catch (SQLException ex) {
-            ex.printStackTrace();
         }
     }
 }
