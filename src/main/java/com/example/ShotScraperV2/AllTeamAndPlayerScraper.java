@@ -19,14 +19,6 @@ import java.util.ResourceBundle;
 public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     private final Logger LOGGER = LoggerFactory.getLogger(AllTeamAndPlayerScraper.class);
     /**
-     * Connection to first player database
-     */
-    private Connection connPlayers1 = null;
-    /**
-     * Connection to second player database
-     */
-    private Connection connPlayers2 = null;
-    /**
      * Database schema names
      */
     private String schema1, schema2;
@@ -36,25 +28,11 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      *
      * @param schema1 name of first database schema
      * @param schema2 name of second database schema
-     * @throws SQLException If connections to databases are denied
      */
     @Autowired
-    public AllTeamAndPlayerScraper(@Value("${playerschema1}") String schema1,
-                                   @Value("${playerschema2}") String schema2) throws SQLException {
-        connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schema1);
-        connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schema2);
+    public AllTeamAndPlayerScraper(@Value("${playerschema1}") String schema1, @Value("${playerschema2}") String schema2) {
         this.schema1 = schema1;
         this.schema2 = schema2;
-    }
-
-    /**
-     * Sets database connections to a single test database for testing
-     *
-     * @param conn connection to test database
-     */
-    protected void setTestConnectionsAsSingleDatabase(Connection conn) {
-        this.connPlayers1 = conn;
-        this.connPlayers2 = conn;
     }
 
     /**
@@ -64,7 +42,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      * @throws IOException          If fetching the site is interrupted
      * @throws SQLException         If inserting the data into a database fails
      */
-    public void getTeamAndPlayerData() throws InterruptedException, IOException, SQLException {
+    public void getTeamAndPlayerData(Connection connPlayers1, Connection connPlayers2) throws InterruptedException, IOException, SQLException {
         createGeneralTablesIfNecessary(connPlayers1, schema1);
         createGeneralTablesIfNecessary(connPlayers2, schema2);
         //Record updated players, activity status, and active years for logging the results
@@ -231,7 +209,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      */
     private HashMap<Integer, Integer> getEachPlayerCurrentlyActiveMap(Connection connPlayers1) throws SQLException {
         ResultSet allPlayersWithCurrentlyActiveRS = connPlayers1.prepareStatement("SELECT id,currentlyactive from player_all_data ").executeQuery();
-        HashMap<Integer, Integer> mapPlayerToCurrentlyActive = new HashMap();
+        HashMap<Integer, Integer> mapPlayerToCurrentlyActive = new HashMap<>();
         while (allPlayersWithCurrentlyActiveRS.next()) {
             mapPlayerToCurrentlyActive.put(allPlayersWithCurrentlyActiveRS.getInt("id"), allPlayersWithCurrentlyActiveRS.getInt("currentlyactive"));
         }
@@ -260,7 +238,6 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      * @param id           the player's ID
      * @param connPlayers1 the first database connection
      * @param connPlayers2 the second database connection
-     * @throws SQLException If updating fails
      */
     private void updateCurrentlyActive(int isActive, String id, Connection connPlayers1, Connection connPlayers2) {
         String[] tableNames = new String[]{"player_all_data", "player_relevant_data"};
@@ -336,6 +313,14 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
         }
     }
 
+    /**
+     * Parses search response for all team data and inserts it into database
+     *
+     * @param teams        array of each team's data as a String, keeping the format from the source
+     * @param connPlayers1 connection to first player database
+     * @param connPlayers2 connection to second player database
+     * @throws SQLException If saving team data fails
+     */
     protected void processTeamData(String[] teams, Connection connPlayers1, Connection connPlayers2) throws SQLException {
         HashSet<Integer> allTeamIDs = getAllIds("SELECT id FROM team_data", connPlayers1, connPlayers2);
         String[] teamDetails;
@@ -364,6 +349,16 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
         }
     }
 
+    /**
+     * Parses search response for all player data and inserts it into database
+     *
+     * @param players                  array of each player's data as a String, keeping the format from the source
+     * @param updatedPlayerActivities  hashmap of players with updated activity statuses for logging purposes
+     * @param updatedLatestActiveYears hashmap of players with updated latest active years for logging purposes
+     * @param connPlayers1             connection to first player database
+     * @param connPlayers2             connection to second player database
+     * @throws SQLException If setting or updating player data fails
+     */
     protected void processPlayerData(String[] players, HashMap<String, Integer> updatedPlayerActivities, HashMap<String, Integer> updatedLatestActiveYears, Connection connPlayers1, Connection connPlayers2) throws SQLException {
         String insertPlayerAll = "INSERT INTO player_all_data (id, lastname ,firstname,firstactiveyear,mostrecentactiveyear,currentlyactive) VALUES (?,?,?,?,?,?) ";
         String insertPlayerRelevant = "INSERT INTO player_relevant_data (id, lastname ,firstname,firstactiveyear,mostrecentactiveyear,currentlyactive) VALUES (?,?,?,?,?,?) ";
