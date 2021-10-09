@@ -61,7 +61,6 @@ public interface ScraperUtilsInterface {
      * @throws IOException          If the request is interrupted
      */
     default String fetchSpecificURL(String url) throws HttpTimeoutException, InterruptedException, IOException {
-        Thread.sleep((long) (Math.random() * 20000));
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .header("accept", "application/json")
@@ -71,7 +70,7 @@ public interface ScraperUtilsInterface {
                 .header("Access-Control-Request-Method", "GET")
                 .timeout(Duration.ofSeconds(60))
                 .build();
-        HttpResponse response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        return response.body().toString();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        return response.body();
     }
 }
