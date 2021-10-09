@@ -9,20 +9,19 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import javax.xml.transform.Result;
-
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.sql.*;
 import java.util.*;
 import java.util.stream.Stream;
 
+/**
+ * Tests for AllTeamAndPlayerScraper
+ */
 @SpringBootTest
 @DisplayName("AllTeamAndPlayerScraper")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -34,7 +33,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
     /**
      * Clears test database before testing
      *
-     * @throws SQLException
+     * @throws SQLException If statement fails
      */
     @BeforeAll
     void dropAllTablesBefore() throws SQLException {
@@ -45,16 +44,6 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
         }
         rsTables.close();
         connPlayers.close();
-    }
-
-    /**
-     * Connects scraper to test database
-     *
-     * @throws SQLException If connection cannot be established
-     */
-    @BeforeAll
-    void establishTestConnections() throws SQLException {
-        this.allTeamAndPlayerScraper.setTestConnectionsAsSingleDatabase(ScraperUtilsInterface.super.setNewConnection("playertest"));
     }
 
     /**
@@ -114,7 +103,6 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
      * @param player player object to be inserted into database
      * @throws SQLException If querying the database fails
      */
-
     @ParameterizedTest
     @DisplayName("inserts players with varying name length")
     @MethodSource("providePlayersWithVariedNameLength")
@@ -170,7 +158,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
         Team normalTeamLength = new Team(12321, "FBU", "fenerbahce_ulker", "Istanbul", "Fenerbahce Ulker");
         Team noAbbrTeam = new Team(1610610023, "", "anderson_packers", "Anderson", "Packers");
         Team noCasualNameTeam = new Team(1610610024, "BAL", "", "Baltimore", "Bullets");
-        HashSet<Team> savedTeams = new HashSet();
+        HashSet<Team> savedTeams = new HashSet<>();
         ResultSet allTeams = conn.prepareStatement("SELECT * FROM team_data").executeQuery();
         while (allTeams.next()) {
             teamCounter++;
@@ -204,7 +192,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
          */
 
     /**
-     * Tests that all scraped players will be added to the all player table
+     * Tests that provided sample of players will be added to the all player table
      *
      * @param correctPlayers array of players that should exist in the table
      * @param players        input of player data to be added
@@ -216,7 +204,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
     void shouldAddNewPlayersToAllPlayersTable(ArrayList<Player> correctPlayers, String[] players) throws SQLException {
         Connection conn = ScraperUtilsInterface.super.setNewConnection("playertest");
         allTeamAndPlayerScraper.createGeneralTablesIfNecessary(conn, "playertest");
-        allTeamAndPlayerScraper.processPlayerData(players, new HashMap(), new HashMap(), conn, conn);
+        allTeamAndPlayerScraper.processPlayerData(players, new HashMap<>(), new HashMap<>(), conn, conn);
         ResultSet playerRS = conn.prepareStatement("SELECT * FROM player_all_data").executeQuery();
         HashSet<Player> allPlayers = new HashSet<>();
         while (playerRS.next()) {
@@ -237,7 +225,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
      */
     private static Stream<Arguments> provideNewPlayersForAllPlayersTable() {
         return Stream.of(
-                Arguments.of(new ArrayList(Arrays.asList(new Player("100", "Doe", "John", "0", "2000", "2001"),
+                Arguments.of(new ArrayList<>(Arrays.asList(new Player("100", "Doe", "John", "0", "2000", "2001"),
                                 new Player("101", "Smith", "Jane", "1", "2019", "2020"),
                                 new Player("102", "Jones", "Bob", "0", "1950", "1970"))),
                         new String[]{":[[100,\"Doe, John\",0,2000,2001,0,\"\"",
@@ -246,7 +234,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
     }
 
     /**
-     * Tests that only players active after 1996 should be added to relevant players table
+     * Tests that only sample players active after 1996 should be added to relevant players table
      *
      * @param correctPlayers array of players that should exist in the table
      * @param wrongPlayers   array of players that should not exist in the table
@@ -259,7 +247,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
     void shouldAddNewPlayersToRelevantPlayersTable(ArrayList<Player> correctPlayers, ArrayList<Player> wrongPlayers, String[] players) throws SQLException {
         Connection conn = ScraperUtilsInterface.super.setNewConnection("playertest");
         allTeamAndPlayerScraper.createGeneralTablesIfNecessary(conn, "playertest");
-        allTeamAndPlayerScraper.processPlayerData(players, new HashMap(), new HashMap(), conn, conn);
+        allTeamAndPlayerScraper.processPlayerData(players, new HashMap<>(), new HashMap<>(), conn, conn);
         ResultSet playerRS = conn.prepareStatement("SELECT * FROM player_relevant_data").executeQuery();
         HashSet<Player> allPlayers = new HashSet<>();
         while (playerRS.next()) {
@@ -283,9 +271,9 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
      */
     private static Stream<Arguments> provideNewPlayersForRelevantPlayersTable() {
         return Stream.of(
-                Arguments.of(new ArrayList(Arrays.asList(new Player("100", "Doe", "John", "0", "2000", "2001"),
+                Arguments.of(new ArrayList<>(Arrays.asList(new Player("100", "Doe", "John", "0", "2000", "2001"),
                                 new Player("101", "Smith", "Jane", "1", "2019", "2020"))),
-                        new ArrayList(Arrays.asList(new Player("100", "Jones", "Bob", "0", "1950", "1970"))),
+                        new ArrayList<>(Arrays.asList(new Player("100", "Jones", "Bob", "0", "1950", "1970"))),
                         new String[]{":[[100,\"Doe, John\",0,2000,2001,0,\"\"",
                                 ",[101,\"Smith, Jane\",1,2019,2020,0,\"clippers\"",
                                 ",[102,\"Jones, Bob\",0,1950,1970,0,\"\""}));
@@ -306,7 +294,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
         allTeamAndPlayerScraper.createGeneralTablesIfNecessary(conn, "playertest");
         //Setup database with values that need to be updated
         setupDatabaseForUpdatingPlayers(conn);
-        allTeamAndPlayerScraper.processPlayerData(players, new HashMap(), new HashMap(), conn, conn);
+        allTeamAndPlayerScraper.processPlayerData(players, new HashMap<>(), new HashMap<>(), conn, conn);
         ResultSet playerRS = conn.prepareStatement("SELECT * FROM player_relevant_data").executeQuery();
         HashSet<Player> allPlayers = new HashSet<>();
         while (playerRS.next()) {
@@ -327,7 +315,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
      */
     private static Stream<Arguments> providePlayersToUpdateActivity() {
         return Stream.of(
-                Arguments.of(new ArrayList(Arrays.asList(new Player("100", "Doe", "John", "1", "2000", "2020"),
+                Arguments.of(new ArrayList<>(Arrays.asList(new Player("100", "Doe", "John", "1", "2000", "2020"),
                                 new Player("101", "Smith", "Jane", "0", "2019", "2020"))),
                         new String[]{":[[100,\"Doe, John\",1,2000,2020,0,\"\"",
                                 ",[101,\"Smith, Jane\",0,2019,2020,0,\"clippers\""}));
@@ -346,11 +334,9 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
     void shouldUpdatePlayerMostRecentActiveYear(ArrayList<Player> correctPlayers, String[] players) throws SQLException {
         Connection conn = ScraperUtilsInterface.super.setNewConnection("playertest");
         allTeamAndPlayerScraper.createGeneralTablesIfNecessary(conn, "playertest");
-        HashMap<String, Integer> updatedPlayerActivities = new HashMap();
-        HashMap<String, Integer> updatedLatestActiveYears = new HashMap();
         //Setup database with values that need to be updated
         setupDatabaseForUpdatingPlayers(conn);
-        allTeamAndPlayerScraper.processPlayerData(players, updatedPlayerActivities, updatedLatestActiveYears, conn, conn);
+        allTeamAndPlayerScraper.processPlayerData(players, new HashMap<>(), new HashMap<>(), conn, conn);
         ResultSet playerRS = conn.prepareStatement("SELECT * FROM player_relevant_data").executeQuery();
         HashSet<Player> allPlayers = new HashSet<>();
         while (playerRS.next()) {
@@ -371,7 +357,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
      */
     private static Stream<Arguments> providePlayersToUpdateMostRecentActiveYear() {
         return Stream.of(
-                Arguments.of(new ArrayList(Arrays.asList(new Player("100", "Doe", "John", "0", "2000", "2020"),
+                Arguments.of(new ArrayList<>(Arrays.asList(new Player("100", "Doe", "John", "0", "2000", "2020"),
                                 new Player("101", "Smith", "Jane", "1", "2019", "2020"))),
                         new String[]{":[[100,\"Doe, John\",0,2000,2020,0,\"\"",
                                 ",[101,\"Smith, Jane\",1,2019,2020,0,\"clippers\""}));
@@ -380,6 +366,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
 
     /**
      * Sets up database with wrong values that are to be updated
+     *
      * @param conn connection to database
      * @throws SQLException If statement fails
      */
@@ -403,13 +390,12 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
             stmt.setInt(6, 1);
             stmt.execute();
         }
-
     }
 
     /**
      * Drops all tables in the test database after all tests are complete
      *
-     * @throws SQLException
+     * @throws SQLException If dropping tables fails
      */
     @AfterEach
     void dropAllTablesAfter() throws SQLException {
