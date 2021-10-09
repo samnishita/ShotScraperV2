@@ -1,7 +1,7 @@
 package com.example.ShotScraperV2;
 
-import com.example.ShotScraperV2.objects.Player;
-import com.example.ShotScraperV2.objects.Team;
+import com.example.ShotScraperV2.nbaobjects.Player;
+import com.example.ShotScraperV2.nbaobjects.Team;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -124,7 +124,7 @@ public class AllTeamAndPlayerScraperTests implements ScraperUtilsInterface {
     }
 
     /**
-     * Provides Player objects as inputs with varying name length into shouldInsertPlayerDataWithVariedNameLength
+     * Provides Player nbaobjects as inputs with varying name length into shouldInsertPlayerDataWithVariedNameLength
      *
      * @return stream of Players
      */

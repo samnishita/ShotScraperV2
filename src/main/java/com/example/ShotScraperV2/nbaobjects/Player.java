@@ -1,4 +1,4 @@
-package com.example.ShotScraperV2.objects;
+package com.example.ShotScraperV2.nbaobjects;
 
 import java.util.*;
 

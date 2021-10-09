@@ -1,6 +1,6 @@
 package com.example.ShotScraperV2;
 
-import com.example.ShotScraperV2.objects.Player;
+import com.example.ShotScraperV2.nbaobjects.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
