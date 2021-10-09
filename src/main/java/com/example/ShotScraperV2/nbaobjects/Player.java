@@ -111,4 +111,28 @@ public class Player {
     public String[] generatePlayerDetailsArray() {
         return new String[]{this.playerId + "", this.lastName, this.firstName, this.currentlyActive + "", this.firstActiveYear, this.mostRecentActiveYear};
     }
+
+    public int getPlayerId() {
+        return playerId;
+    }
+
+    public int getCurrentlyActive() {
+        return currentlyActive;
+    }
+
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public String getLastName() {
+        return lastName;
+    }
+
+    public String getFirstActiveYear() {
+        return firstActiveYear;
+    }
+
+    public String getMostRecentActiveYear() {
+        return mostRecentActiveYear;
+    }
 }
