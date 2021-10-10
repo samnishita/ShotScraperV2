@@ -17,12 +17,12 @@ import org.json.JSONObject;
  */
 public class IndividualPlayerScraper implements ScraperUtilsInterface {
     private final Logger LOGGER = LoggerFactory.getLogger(IndividualPlayerScraper.class);
-    private String schema1, schema2;
+    private String schema1Alias, schema2Alias;
 
-    public IndividualPlayerScraper(String schema1, String schema2) {
-        this.schema1 = schema1;
-        this.schema2 = schema2;
-        LOGGER.info("Initialized PlayerInfoFinder for " + schema1 + " and " + schema2);
+    public IndividualPlayerScraper(String schema1Alias, String schema2Alias) {
+        this.schema1Alias = schema1Alias;
+        this.schema2Alias = schema2Alias;
+        LOGGER.info("Initialized PlayerInfoFinder for " + schema1Alias + " and " + schema2Alias);
     }
 
     /**
@@ -259,7 +259,9 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
         int exceptionRetryCounter = 0;
         while (exceptionRetryCounter < 3) {
             try {
-                String response = ScraperUtilsInterface.super.fetchSpecificURL("https://stats.nba.com/stats/playerprofilev2?LeagueID=00&PerMode=PerGame&PlayerID=" + eachID);
+                String url = "https://stats.nba.com/stats/playerprofilev2?LeagueID=00&PerMode=PerGame&PlayerID=" + eachID;
+                String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
+                LOGGER.debug("Response from " + url + ": \n" + response);
                 StringBuilder sb = new StringBuilder(eachID + ": ");
                 recordSeasons(new JSONObject(response), sb, yearSeasonActivityMap);
                 LOGGER.info(sb.toString());
