@@ -1,15 +1,14 @@
 package com.example.ShotScraperV2;
 
+import com.example.ShotScraperV2.nbaobjects.Player;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.text.DateFormat;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
@@ -18,142 +17,255 @@ import java.util.*;
  */
 public class ShotScraper implements ScraperUtilsInterface {
     private final Logger LOGGER = LoggerFactory.getLogger(ShotScraper.class);
-    private String schemaShots1, locationShots1, schemaShots2, locationShots2, schemaPlayers1, locationPlayers1, schemaPlayers2, locationPlayers2;
-    private Connection connShots1 = null, connPlayers1 = null, connShots2 = null, connPlayers2 = null;
-    private ArrayList<String> seasonTypes = new ArrayList(Arrays.asList("Preseason", "Regular%20Season", "Playoffs"));
-    private HashMap<String, Integer> teamAbbrMap;
+    private final ResourceBundle READER = ResourceBundle.getBundle("application");
+    private String schemaShots1Alias, schemaShots2Alias, schemaPlayers1Alias, schemaPlayers2Alias;
     /**
-     * Special team abbreviations
+     * Map of column name and the normal readable version of the season type
      */
-    private Map<String, String> specialTeams = Map.ofEntries(Map.entry("NJN", "BKN"),
+    private final Map<String, String> mapDBColumnToSeasonType = new HashMap<>(Map.ofEntries(
+            Map.entry("preseason", "Preseason"),
+            Map.entry("reg", "Regular Season"),
+            Map.entry("playoffs", "Playoffs")));
+
+    /**
+     * Map of normal season type and the version accepted by the URL parameters
+     */
+    private final Map<String, String> mapDBColumnToURLParamName = new HashMap<>(Map.ofEntries(
+            Map.entry("Preseason", "Pre+Season"),
+            Map.entry("Regular Season", "Regular+Season"),
+            Map.entry("Playoffs", "Playoffs")));
+    /**
+     * Map of team abbreviation and team id
+     */
+    private HashMap<String, Integer> teamAbbrMap;
+
+    /**
+     * Map of data location in shot data response to prepared statement index
+     * <p></p>
+     * Helps organize data in database in more logical order
+     */
+    private final HashMap<Integer, Integer> MAP_JSON_ARRAY_INDEX_TO_PS_INDEX = new HashMap<>(Map.ofEntries(
+            Map.entry(1, 7),//gameID
+            Map.entry(2, 8),//gameEventID
+            Map.entry(3, 2),//playerID
+            Map.entry(5, 20),//teamID
+            Map.entry(6, 21),//teamName
+            Map.entry(7, 17),//period
+            Map.entry(8, 11),//minutes
+            Map.entry(9, 12),//seconds
+            Map.entry(10, 16),//make
+            Map.entry(11, 19),//playType
+            Map.entry(12, 18),//shotType
+            Map.entry(13, 27),//shotZoneBasic
+            Map.entry(14, 28),//shotZoneArea
+            Map.entry(15, 29),//shotZoneRange
+            Map.entry(16, 15),//distance
+            Map.entry(17, 13),//x
+            Map.entry(18, 14),//y
+            Map.entry(21, 9),//calendar
+            Map.entry(22, 25),//homeTeamName
+            Map.entry(23, 23)//awayTeamName
+    ));
+
+    /**
+     * Map of old team abbreviations to their updated team abbreviations
+     */
+    private final Map<String, String> specialTeams = Map.ofEntries(Map.entry("NJN", "BKN"),
             Map.entry("VAN", "MEM"),
             Map.entry("NOK", "NOP"),
             Map.entry("NOH", "NOP"),
             Map.entry("SEA", "OKC"),
             Map.entry("CHH", "CHA"));
-    ;
     private int totalNewShotsAdded;
     private IndividualPlayerScraper individualPlayerScraper;
 
     /**
      * Initializes ShotScraper with database connections
-     * @param schemaShots1 first shot schema name
-     * @param locationShots1 first shot location
-     * @param schemaShots2 second shot schema name
-     * @param locationShots2 second shot location
-     * @param schemaPlayers1 first player schema name
-     * @param locationPlayers1 first player location
-     * @param schemaPlayers2 second player schema name
-     * @param locationPlayers2 second player location
+     *
+     * @param schemaShots1Alias       first shot schema alias
+     * @param schemaShots2Alias       second shot schema alias
+     * @param schemaPlayers1Alias     first player schema alias
+     * @param schemaPlayers2Alias     second player schema alias
+     * @param individualPlayerScraper player scraper
      */
-    public ShotScraper(String schemaShots1, String locationShots1, String schemaShots2, String locationShots2, String schemaPlayers1, String locationPlayers1, String schemaPlayers2, String locationPlayers2) {
+    public ShotScraper(String schemaShots1Alias, String schemaShots2Alias, String schemaPlayers1Alias, String schemaPlayers2Alias, IndividualPlayerScraper individualPlayerScraper) {
         try {
-            connShots1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1, locationShots1);
-            connPlayers1 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1, locationPlayers1);
-            connShots2 = ScraperUtilsInterface.super.setNewConnection(schemaShots2, locationShots2);
-            connPlayers2 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers2, locationPlayers2);
-            this.schemaShots1 = schemaShots1;
-            this.locationShots1 = locationShots1;
-            this.schemaShots2 = schemaShots2;
-            this.locationShots2 = locationShots2;
-            this.schemaPlayers1 = schemaPlayers1;
-            this.locationPlayers1 = locationPlayers1;
-            this.schemaPlayers2 = schemaPlayers2;
-            this.locationPlayers2 = locationPlayers2;
-            this.teamAbbrMap = new HashMap();
-            ResultSet rsTeam = connPlayers1.prepareStatement("SELECT * FROM team_data").executeQuery();
-            while (rsTeam.next()) {
-                this.teamAbbrMap.put(rsTeam.getString("abbr"), rsTeam.getInt("id"));
-            }
-            createAllShotsTable();
+            this.schemaShots1Alias = schemaShots1Alias;
+            this.schemaShots2Alias = schemaShots2Alias;
+            this.schemaPlayers1Alias = schemaPlayers1Alias;
+            this.schemaPlayers2Alias = schemaPlayers2Alias;
+            Connection connPlayers = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1Alias);
+            Connection connShots1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1Alias);
+            Connection connShots2 = ScraperUtilsInterface.super.setNewConnection(schemaShots2Alias);
+            this.teamAbbrMap = createTeamAbbreviationMap(connPlayers);
+            createAllShotsTable(connShots1, connShots2);
+            connPlayers.close();
+            connShots1.close();
+            connShots2.close();
         } catch (Exception ex) {
             LOGGER.error(ex.getMessage());
         }
         totalNewShotsAdded = 0;
-        final ResourceBundle READER = ResourceBundle.getBundle("application");
-        this.individualPlayerScraper = new IndividualPlayerScraper(READER.getString("playerschema1"),
-                READER.getString("playerlocation1"), READER.getString("playerschema2"), READER.getString("playerlocation2"));
+        this.individualPlayerScraper = individualPlayerScraper;
     }
 
     /**
-     *Scrapes all shots for all players
+     * Generates a map with (K,V) of (team abbreviation, team ID)
+     *
+     * @param connPlayers connection to player database (where team data is stored)
+     * @return hashmap of team abbreviation and team ID
+     * @throws SQLException If SQL query fails
      */
-    public void getEveryShotWithMainThread() {
+    private HashMap<String, Integer> createTeamAbbreviationMap(Connection connPlayers) throws SQLException {
+        HashMap<String, Integer> map = new HashMap<>();
+        ResultSet rsTeam = connPlayers.prepareStatement("SELECT * FROM team_data").executeQuery();
+        while (rsTeam.next()) {
+            map.put(rsTeam.getString("abbr"), rsTeam.getInt("id"));
+        }
+        rsTeam.close();
+        return map;
+    }
+
+    /**
+     * Finds player activity from their individual data table
+     *
+     * @param lastName          player last name
+     * @param firstName         player first name
+     * @param playerID          player ID
+     * @param onlyCurrentSeason if searching only for player activity in the current year and season type
+     * @param currentSeasonType the current season type (used when onlyCurrentSeason == true)
+     * @param connPlayers       connection to player database
+     * @return ResultSet of all rows fulfilling the SQL query
+     */
+    protected ResultSet findPlayerActivity(String lastName, String firstName, int playerID, boolean onlyCurrentSeason, String currentSeasonType, Connection connPlayers) {
+        //Get individual player activity data
+        try {
+            String indivSelect = "SELECT * FROM " + lastName + "_" + firstName + "_" + playerID + "_individual_data";
+            //If only updating current season, add WHERE clause for current year and desired season type
+            if (onlyCurrentSeason) {
+                indivSelect = indivSelect + " WHERE year = '" + ScraperUtilsInterface.super.getCurrentYear() + "' AND " + currentSeasonType + " = 1";
+            }
+            return connPlayers.prepareStatement(indivSelect).executeQuery();
+        } catch (SQLException ex) {
+            LOGGER.error(ex.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Finds all existing shots in a given shot table
+     *
+     * @param connShots             connection to shots database
+     * @param shotTableName         name of shot table to be searched
+     * @param existingUniqueShotIds set of unique shot IDs to be updated
+     */
+    protected void findExistingShots(Connection connShots, String shotTableName, HashSet<String> existingUniqueShotIds) {
+        //Find existing shots to reduce number of statements to be executed
+        try {
+            ResultSet existingShotsResultSet = connShots.prepareStatement("SELECT uniqueshotid FROM " + shotTableName).executeQuery();
+            while (existingShotsResultSet.next()) {
+                existingUniqueShotIds.add(existingShotsResultSet.getString("uniqueshotid"));
+            }
+            existingShotsResultSet.close();
+        } catch (SQLException ex) {
+            LOGGER.error(ex.getMessage());
+        }
+    }
+
+    /**
+     * Finds if given shot table exists in given schema
+     *
+     * @param connShots     connection to shot database
+     * @param shotTableName name of desired shot table
+     * @param schema        database schema
+     * @return number of tables found
+     */
+    protected int findExistingTables(Connection connShots, String shotTableName, String schema) {
+        int tableCounter = 0;
+        try {
+            ResultSet shotTablesRS = connShots.getMetaData().getTables(schema, null, shotTableName, new String[]{"TABLE"});
+            while (shotTablesRS.next()) {
+                tableCounter++;
+            }
+            shotTablesRS.close();
+        } catch (Exception ex) {
+            LOGGER.error(ex.getMessage());
+        }
+        return tableCounter;
+    }
+
+    /**
+     * Scrapes all shots for all players
+     *
+     * @param connPlayers1      connection to first player database
+     * @param connPlayers2      connection to second player database
+     * @param connShots1        connection to first shot database
+     * @param connShots2        connection to second shot database
+     * @param onlyCurrentSeason should only search for current year and season type
+     * @param currentSeasonType current season type
+     */
+    public void getEveryShotWithMainThread(Connection connPlayers1, Connection connPlayers2, Connection connShots1, Connection connShots2, boolean onlyCurrentSeason, String currentSeasonType) {
         while (true) {
             //Exits while loop when queue return null
-            HashMap<String, String> eachPlayerHashMap = RunHandler.popQueue();
-            if (eachPlayerHashMap == null) {
+            Player polledPlayer = RunHandler.pollQueue();
+            if (polledPlayer == null) {
                 break;
             } else {
-                int playerID = Integer.parseInt(eachPlayerHashMap.get("playerID"));
-                String lastNameOrig = eachPlayerHashMap.get("lastNameOrig");
-                String firstNameOrig = eachPlayerHashMap.get("firstNameOrig");
+                int playerID = polledPlayer.getPlayerId();
+                String lastNameOrig = polledPlayer.getLastName();
+                String firstNameOrig = polledPlayer.getFirstName();
                 String lastName = lastNameOrig.replaceAll("[^A-Za-z0-9]", "");
                 String firstName = firstNameOrig.replaceAll("[^A-Za-z0-9]", "");
-                ResultSet indivSet;
+                //Gathers all active years for polled player
+                ResultSet playerActivityResultSet = findPlayerActivity(lastName, firstName, playerID, onlyCurrentSeason, currentSeasonType, connPlayers1);
+                String year, playerTableName;
+                ArrayList<String> seasonTypes;
                 try {
-                    String indivSelect = "SELECT * FROM " + lastName + "_" + firstName + "_" + playerID + "_individual_data";
-                    indivSet = connPlayers1.prepareStatement(indivSelect).executeQuery();
-                } catch (SQLException ex) {
-                    continue;
-                }
-                String year, seasonType;
-                try {
-                    //For each year the particular player is active
-                    String playerTableName;
-                    while (indivSet.next()) {
+                    //Iterate through ResultSet
+                    //If onlyCurrentSeason is true and player is not active in the current season type, ResultSet will be empty (next() will end loop)
+                    while (playerActivityResultSet != null && playerActivityResultSet.next()) {
                         //Current year of the iteration
-                        year = indivSet.getString("year");
-                        //For each type of season (preseason, regular, and playoffs)
-                        for (String eachSeasonType : this.seasonTypes) {
-                            //If the iteration is preseason and either 1) the player wasn't active or 2) the year was before 2005-06
-                            if (eachSeasonType.equals("Preseason") && (indivSet.getInt("preseason") == -1 || Integer.parseInt(year.substring(0, 4)) < 2005)) {
-                                continue;
-                            } //If the iteration is the regular season and the player wasn't active
-                            else if (eachSeasonType.equals("Regular%20Season") && indivSet.getInt("reg") == -1) {
-                                continue;
-                            } //if the iteration is the playoffs and the player wasn't active
-                            else if (eachSeasonType.equals("Playoffs") && indivSet.getInt("playoffs") == -1) {
-                                continue;
-                            }
-                            //Fix special characters for certain situations
-                            if (eachSeasonType.equals("Regular%20Season")) {
-                                seasonType = "Regular Season";
-                                playerTableName = lastName + "_" + firstName + "_" + playerID + "_" + year.substring(0, 4) + "_" + year.substring(5) + "_" + "RegularSeason";
-                            } else {
-                                seasonType = eachSeasonType;
-                                playerTableName = lastName + "_" + firstName + "_" + playerID + "_" + year.substring(0, 4) + "_" + year.substring(5) + "_" + eachSeasonType;
-                            }
-                            //Check if table exists already in database
-                            int tableCounter = 0;
-                            ResultSet shotTablesRS = connShots1.getMetaData().getTables(this.schemaShots1, null, playerTableName, new String[]{"TABLE"});
-                            while (shotTablesRS.next()) {
-                                tableCounter++;
-                            }
-                            //If the table doesn't already exist
-                            if (tableCounter == 0) {
-                                createIndividualSeasonTable(playerTableName);
-                                String urlSeasonType;
-                                if (eachSeasonType.equals("Preseason")) {
-                                    urlSeasonType = "Pre+Season";
-                                } else if (eachSeasonType.equals("Regular%20Season")) {
-                                    urlSeasonType = "Regular+Season";
-                                } else {
-                                    urlSeasonType = "Playoffs";
+                        year = playerActivityResultSet.getString("year");
+                        seasonTypes = new ArrayList<>();
+                        //Update list of active season types for current year to scrape
+                        //Add only the current season type if only scraping new shots (player is guaranteed to be active in season type)
+                        if (onlyCurrentSeason) {
+                            seasonTypes.add(mapDBColumnToSeasonType.get(currentSeasonType));
+                        } else {
+                            //Check each season type for activity
+                            //If active, add to list of seasons to search
+                            for (String key : mapDBColumnToSeasonType.keySet()) {
+                                if (playerActivityResultSet.getInt(key) == 1) {
+                                    seasonTypes.add(mapDBColumnToSeasonType.get(key));
                                 }
+                            }
+                        }
+                        //For each active season type for the given year
+                        for (String eachSeasonType : seasonTypes) {
+                            //Format table name
+                            playerTableName = lastName + "_" + firstName + "_" + playerID + "_" + year.substring(0, 4) + "_" + year.substring(5) + "_" + eachSeasonType.replace(" ", "");
+                            //Check if table exists already in database
+                            int tableCounter = findExistingTables(connShots1, playerTableName, READER.getString("spring." + this.schemaShots1Alias + ".schemaname"));
+                            if (onlyCurrentSeason || (!onlyCurrentSeason && tableCounter == 0)) {
+                                createIndividualSeasonTable(playerTableName, connShots1, connShots2);
+                                //URL parameters can be slightly different from normal
                                 //Get the shot data for the current parameters
-                                ArrayList<JSONArray> allShotsAsJSONArrays = searchForShots(year, playerID, urlSeasonType);
-                                //If there is more than 1 shot recorded that player during that season
-                                if (allShotsAsJSONArrays != null && !allShotsAsJSONArrays.isEmpty()) {
-                                    //Insert values into recently generated table
-                                    insertShots(playerTableName, firstNameOrig, lastNameOrig, year, seasonType, allShotsAsJSONArrays, new HashSet<String>());
+                                JSONArray allShotsAsJSONArray = searchForShots(year, playerID, mapDBColumnToURLParamName.get(eachSeasonType));
+                                //If there is at least 1 shot recorded that player during that season
+                                if (allShotsAsJSONArray != null && !allShotsAsJSONArray.isEmpty()) {
+                                    HashSet<String> existingUniqueShotIds = new HashSet<>();
+                                    if (onlyCurrentSeason) {
+                                        findExistingShots(connShots1, playerTableName, existingUniqueShotIds);
+                                    }
+                                    insertShots(playerTableName, firstNameOrig, lastNameOrig, year, eachSeasonType, allShotsAsJSONArray, existingUniqueShotIds,
+                                            connShots1, connShots2);
                                 } else {
                                     LOGGER.info("\nTABLE NAME: " + playerTableName + "\n                                    NO SHOTS TAKEN");
                                 }
                             }
-                            //If table already exists then nothing happens
                         }
                     }
+                    playerActivityResultSet.close();
                 } catch (Exception ex) {
                     LOGGER.error(ex.getMessage());
                 }
@@ -163,293 +275,225 @@ public class ShotScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Organizes shot data for database entry
-     * @param playerTableName player table name
-     * @param firstNameOrig player's real first name
-     * @param lastNameOrig player's real last name
-     * @param year year
-     * @param seasonType season type
-     * @param allShotsAsJSONArrays list of all shots scraped for the current parameters
-     * @param existingUniqueShotIDs set of all shots already in database
+     * Generates bulk of SQL INSERT statement for a given table name
+     *
+     * @param tableName table name to receive data
+     * @return String of SQL
      */
-    private void insertShots(String playerTableName, String firstNameOrig, String lastNameOrig, String year, String seasonType, ArrayList<JSONArray> allShotsAsJSONArrays, HashSet<String> existingUniqueShotIDs) {
-        final String YEAR = year;
-        final String SEASON_TYPE = seasonType;
+    private String createShotInsertSQL(String tableName) {
+        return "INSERT INTO " + tableName
+                + "(uniqueshotid,playerid,playerlast,playerfirst,season,"
+                + "seasontype,gameid,gameeventid,calendar,clock,"
+                + "minutes,seconds,x,y,distance,"
+                + "make,period,shottype,playtype,teamid,"
+                + "teamname,awayteamid,awayteamname,hometeamid,hometeamname,"
+                + "athome,shotzonebasic,shotzonearea,shotzonerange )"
+                + "VALUES(?,?,?,?,?"
+                + ",?,?,?,?,?"
+                + ",?,?,?,?,?"
+                + ",?,?,?,?,?"
+                + ",?,?,?,?,?"
+                + ",?,?,?,?)";
+    }
+
+    /**
+     * Organizes shot data for database entry
+     *
+     * @param playerTableName       player table name
+     * @param firstNameOrig         player's real first name
+     * @param lastNameOrig          player's real last name
+     * @param year                  year
+     * @param seasonType            season type
+     * @param allShotsAsJSONArray   array of all shots scraped for the current parameters
+     * @param existingUniqueShotIDs set of all shots already in database
+     * @param connShots1            connection to first shot database
+     * @param connShots2            connection to second shot database
+     */
+    protected void insertShots(String playerTableName, String firstNameOrig, String lastNameOrig, String year, String seasonType, JSONArray allShotsAsJSONArray, HashSet<String> existingUniqueShotIDs,
+                               Connection connShots1, Connection connShots2) {
         try {
-            final String shotInsert = "INSERT INTO " + playerTableName
-                    + "(uniqueshotid,playerid,playerlast,playerfirst,season,"
-                    + "seasontype,gameid,gameeventid,calendar,clock,"
-                    + "minutes,seconds,x,y,distance,"
-                    + "make,period,shottype,playtype,teamid,"
-                    + "teamname,awayteamid,awayteamname,hometeamid,hometeamname,"
-                    + "athome,shotzonebasic,shotzonearea,shotzonerange )"
-                    + "VALUES(?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?)";
-            final String allShotInsert = "INSERT INTO all_shots"
-                    + "(uniqueshotid,playerid,playerlast,playerfirst,season,"
-                    + "seasontype,gameid,gameeventid,calendar,clock,"
-                    + "minutes,seconds,x,y,distance,"
-                    + "make,period,shottype,playtype,teamid,"
-                    + "teamname,awayteamid,awayteamname,hometeamid,hometeamname,"
-                    + "athome,shotzonebasic,shotzonearea,shotzonerange )"
-                    + "VALUES(?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?,?"
-                    + ",?,?,?,?)";
-            //Format shot data for prepared statement
-            DateFormat dateFormatter = new SimpleDateFormat("yyyyMMdd");
-            dateFormatter.setTimeZone(TimeZone.getTimeZone("UTC"));
-            DateFormat timeFormatter = new SimpleDateFormat("mm:ss");
-            timeFormatter.setTimeZone(TimeZone.getTimeZone("UTC"));
-            final String FIRST_NAME_ORIG = firstNameOrig;
-            final String LAST_NAME_ORIG = lastNameOrig;
-            PreparedStatement stmtShot = connShots1.prepareStatement(shotInsert);
-            PreparedStatement stmtShotLocal = connShots2.prepareStatement(shotInsert);
-            PreparedStatement stmtAllShot = connShots1.prepareStatement(allShotInsert);
-            PreparedStatement stmtAllShotLocal = connShots2.prepareStatement(allShotInsert);
-            HashMap<Integer, Integer> mapJSONArrayIndexToPreparedStatementIndex = new HashMap<>();
-            //Reorder parameters for somewhat similar grouping
-            mapJSONArrayIndexToPreparedStatementIndex.put(1, 7);//gameID
-            mapJSONArrayIndexToPreparedStatementIndex.put(2, 8);//gameEventID
-            mapJSONArrayIndexToPreparedStatementIndex.put(3, 2);//playerID
-            mapJSONArrayIndexToPreparedStatementIndex.put(5, 20);//teamID
-            mapJSONArrayIndexToPreparedStatementIndex.put(6, 21);//teamName
-            mapJSONArrayIndexToPreparedStatementIndex.put(7, 17);//period
-            mapJSONArrayIndexToPreparedStatementIndex.put(8, 11);//minutes
-            mapJSONArrayIndexToPreparedStatementIndex.put(9, 12);//seconds
-            mapJSONArrayIndexToPreparedStatementIndex.put(10, 16);//make
-            mapJSONArrayIndexToPreparedStatementIndex.put(11, 19);//playType
-            mapJSONArrayIndexToPreparedStatementIndex.put(12, 18);//shotType
-            mapJSONArrayIndexToPreparedStatementIndex.put(13, 27);//shotZoneBasic
-            mapJSONArrayIndexToPreparedStatementIndex.put(14, 28);//shotZoneArea
-            mapJSONArrayIndexToPreparedStatementIndex.put(15, 29);//shotZoneRange
-            mapJSONArrayIndexToPreparedStatementIndex.put(16, 15);//distance
-            mapJSONArrayIndexToPreparedStatementIndex.put(17, 13);//x
-            mapJSONArrayIndexToPreparedStatementIndex.put(18, 14);//y
-            mapJSONArrayIndexToPreparedStatementIndex.put(21, 9);//calendar
-            mapJSONArrayIndexToPreparedStatementIndex.put(22, 25);//homeTeamName
-            mapJSONArrayIndexToPreparedStatementIndex.put(23, 23);//awayTeamName
+            ArrayList<PreparedStatement> allPreparedStatements = new ArrayList<>();
+            allPreparedStatements.add(connShots1.prepareStatement(createShotInsertSQL(playerTableName)));
+            allPreparedStatements.add(connShots1.prepareStatement(createShotInsertSQL("all_shots")));
+            if (connShots1 != connShots2) {
+                allPreparedStatements.add(connShots2.prepareStatement(createShotInsertSQL(playerTableName)));
+                allPreparedStatements.add(connShots2.prepareStatement(createShotInsertSQL("all_shots")));
+            }
             HashSet<String> newUniqueIds = new HashSet<>();
-            try {
-                //Iterate through all gathered shot data and filter out shots already in database
-                for (JSONArray eachShotJSONArray : allShotsAsJSONArrays) {
-                    String uniqueID = eachShotJSONArray.getInt(3) + "-" + eachShotJSONArray.getInt(1) + "-" + eachShotJSONArray.getInt(2);
-                    if (!existingUniqueShotIDs.contains(uniqueID)) {
-                        Date date;
-                        java.sql.Date sqlDate;
-                        java.sql.Time sqlTime;
-                        for (int i = 0; i < 29; i++) {
-                            try {
-                                //Some values are recorded as integers, some as strings
-                                switch (i) {
-                                    //UniqueID
-                                    case 0:
-                                        stmtAllShot.setString(1, uniqueID);
-                                        stmtAllShotLocal.setString(1, uniqueID);
-                                        stmtShot.setString(1, uniqueID);
-                                        stmtShotLocal.setString(1, uniqueID);
-                                        break;
-                                        //Normal strings
-                                    case 1:
-                                    case 6:
-                                    case 11:
-                                    case 12:
-                                    case 13:
-                                    case 14:
-                                    case 15:
-                                        stmtAllShot.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        stmtAllShotLocal.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        stmtShot.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        stmtShotLocal.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        break;
-                                        //Normal Integers
-                                    case 2:
-                                    case 3:
-                                    case 5:
-                                    case 7:
-                                    case 8:
-                                    case 9:
-                                    case 16:
-                                    case 17:
-                                    case 18:
-                                        stmtAllShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getInt(i));
-                                        stmtAllShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getInt(i));
-                                        stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getInt(i));
-                                        stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getInt(i));
-                                        break;
-                                        //Makes
-                                    case 10:
-                                        stmtAllShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
-                                        stmtAllShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
-                                        stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
-                                        stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i).contains("Made") ? 1 : 0);
-                                        break;
-                                        //Dates
-                                    case 21:
-                                        date = dateFormatter.parse(eachShotJSONArray.getString(i));
-                                        sqlDate = new java.sql.Date(date.getTime());
-                                        stmtAllShot.setDate(mapJSONArrayIndexToPreparedStatementIndex.get(i), sqlDate);
-                                        stmtAllShotLocal.setDate(mapJSONArrayIndexToPreparedStatementIndex.get(i), sqlDate);
-                                        stmtShot.setDate(mapJSONArrayIndexToPreparedStatementIndex.get(i), sqlDate);
-                                        stmtShotLocal.setDate(mapJSONArrayIndexToPreparedStatementIndex.get(i), sqlDate);
-                                        break;
-                                        //Home and away team names
-                                    case 22:
-                                    case 23:
-                                        stmtAllShot.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        stmtAllShotLocal.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        stmtShot.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        stmtShotLocal.setString(mapJSONArrayIndexToPreparedStatementIndex.get(i), eachShotJSONArray.getString(i));
-                                        int homeID = -1;
-                                        if (specialTeams.containsKey(eachShotJSONArray.getString(i))) {
-                                            homeID = this.teamAbbrMap.get(specialTeams.get(eachShotJSONArray.getString(i)));
-                                            stmtAllShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(specialTeams.get(eachShotJSONArray.getString(i))));
-                                            stmtAllShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(specialTeams.get(eachShotJSONArray.getString(i))));
-                                            stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(specialTeams.get(eachShotJSONArray.getString(i))));
-                                            stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(specialTeams.get(eachShotJSONArray.getString(i))));
-                                        } else if (this.teamAbbrMap.containsKey(eachShotJSONArray.getString(i))) {
-                                            homeID = this.teamAbbrMap.get(eachShotJSONArray.getString(i));
-                                            stmtAllShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(eachShotJSONArray.getString(i)));
-                                            stmtAllShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(eachShotJSONArray.getString(i)));
-                                            stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(eachShotJSONArray.getString(i)));
-                                            stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, this.teamAbbrMap.get(eachShotJSONArray.getString(i)));
-                                        } else {
-                                            stmtAllShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, -1);
-                                            stmtAllShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, -1);
-                                            stmtShot.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, -1);
-                                            stmtShotLocal.setInt(mapJSONArrayIndexToPreparedStatementIndex.get(i) - 1, -1);
-                                        }
-                                        //At home
-                                        if (i == 22) {
-                                            int atHome = (i == 22 && eachShotJSONArray.getInt(5) == homeID) ? 1 : 0;
-                                            stmtAllShot.setInt(26, atHome);
-                                            stmtAllShotLocal.setInt(26, atHome);
-                                            stmtShot.setInt(26, atHome);
-                                            stmtShotLocal.setInt(26, atHome);
-                                        }
-                                        break;
-                                }
-                            } catch (Exception ex) {
-                                LOGGER.error(ex.getMessage());
-                            }
-                        }
+            //Iterate through all gathered shot data and filter out shots already in database
+            JSONArray eachShotJSONArray;
+            for (int index = 0; index < allShotsAsJSONArray.length(); index++) {
+                eachShotJSONArray = allShotsAsJSONArray.getJSONArray(index);
+                String uniqueID = eachShotJSONArray.getInt(3) + "-" + eachShotJSONArray.getInt(1) + "-" + eachShotJSONArray.getInt(2);
+                if (!existingUniqueShotIDs.contains(uniqueID)) {
+                    for (int i = 0; i < eachShotJSONArray.length(); i++) {
                         try {
-                            //Last name
-                            stmtAllShot.setString(3, LAST_NAME_ORIG);
-                            stmtAllShotLocal.setString(3, LAST_NAME_ORIG);
-                            stmtShot.setString(3, LAST_NAME_ORIG);
-                            stmtShotLocal.setString(3, LAST_NAME_ORIG);
-
-                            //First name
-                            stmtAllShot.setString(4, FIRST_NAME_ORIG);
-                            stmtAllShotLocal.setString(4, FIRST_NAME_ORIG);
-                            stmtShot.setString(4, FIRST_NAME_ORIG);
-                            stmtShotLocal.setString(4, FIRST_NAME_ORIG);
-
-                            //Year
-                            stmtAllShot.setString(5, YEAR);
-                            stmtAllShotLocal.setString(5, YEAR);
-                            stmtShot.setString(5, YEAR);
-                            stmtShotLocal.setString(5, YEAR);
-
-                            //Season Type
-                            stmtAllShot.setString(6, SEASON_TYPE);
-                            stmtAllShotLocal.setString(6, SEASON_TYPE);
-                            stmtShot.setString(6, SEASON_TYPE);
-                            stmtShotLocal.setString(6, SEASON_TYPE);
-
-                            //Time
-                            String secondsFormat = eachShotJSONArray.getInt(9) < 10 ? "0" + eachShotJSONArray.getInt(9) : eachShotJSONArray.getInt(9) + "";
-                            date = timeFormatter.parse(String.format("%d:", eachShotJSONArray.getInt(8)) + secondsFormat);
-                            sqlTime = new java.sql.Time(date.getTime());
-                            stmtAllShot.setTime(10, sqlTime, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
-                            stmtAllShotLocal.setTime(10, sqlTime, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
-                            stmtShot.setTime(10, sqlTime, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
-                            stmtShotLocal.setTime(10, sqlTime, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+                            //Format shot data for prepared statement
+                            //Some values are recorded as integers, some as strings
+                            switch (i) {
+                                //UniqueID instead of default value from source
+                                case 0:
+                                    insertParametersIntoAllPreparedStatements(allPreparedStatements, "string", 1, uniqueID);
+                                    break;
+                                //Normal strings
+                                case 1:
+                                case 6:
+                                case 11:
+                                case 12:
+                                case 13:
+                                case 14:
+                                case 15:
+                                    insertParametersIntoAllPreparedStatements(allPreparedStatements, "string", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i), eachShotJSONArray.getString(i));
+                                    break;
+                                //Normal Integers
+                                case 2:
+                                case 3:
+                                case 5:
+                                case 7:
+                                case 8:
+                                case 9:
+                                case 16:
+                                case 17:
+                                case 18:
+                                    insertParametersIntoAllPreparedStatements(allPreparedStatements, "integer", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i), eachShotJSONArray.getInt(i) + "");
+                                    break;
+                                //Makes
+                                case 10:
+                                    insertParametersIntoAllPreparedStatements(allPreparedStatements, "integer", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i), eachShotJSONArray.getString(i).contains("Made") ? "1" : "0");
+                                    break;
+                                //Dates
+                                case 21:
+                                    insertParametersIntoAllPreparedStatements(allPreparedStatements, "date", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i), eachShotJSONArray.getString(i));
+                                    break;
+                                //Home and away team names
+                                case 22:
+                                case 23:
+                                    insertParametersIntoAllPreparedStatements(allPreparedStatements, "string", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i), eachShotJSONArray.getString(i));
+                                    int homeID = -1;
+                                    //Team IDs
+                                    //If team abbreviation is a special abbreviation
+                                    if (specialTeams.containsKey(eachShotJSONArray.getString(i))) {
+                                        homeID = this.teamAbbrMap.get(specialTeams.get(eachShotJSONArray.getString(i)));
+                                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "integer", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i) - 1, this.teamAbbrMap.get(specialTeams.get(eachShotJSONArray.getString(i))) + "");
+                                    } else if (this.teamAbbrMap.containsKey(eachShotJSONArray.getString(i))) {
+                                        //Normal team abbreviation
+                                        homeID = this.teamAbbrMap.get(eachShotJSONArray.getString(i));
+                                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "integer", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i) - 1, this.teamAbbrMap.get(eachShotJSONArray.getString(i)) + "");
+                                    } else {
+                                        //If unknown or missing abbreviation, insert -1
+                                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "integer", MAP_JSON_ARRAY_INDEX_TO_PS_INDEX.get(i) - 1, "-1");
+                                    }
+                                    //At home (1=true, 0=false)
+                                    if (i == 22) {
+                                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "integer", 26, (eachShotJSONArray.getInt(5) == homeID) ? "1" : "0");
+                                    }
+                                    break;
+                            }
                         } catch (Exception ex) {
                             LOGGER.error(ex.getMessage());
                         }
-                        //Insert
-                        if (!newUniqueIds.contains(uniqueID)) {
-                            newUniqueIds.add(uniqueID);
-                            int errorTries1 = 0;
-                            int errorTries2 = 2;
-                            while (errorTries1 < 3 || errorTries2 < 3) {
-                                if (errorTries1 < 3) {
-                                    try {
-                                        stmtAllShot.execute();
-                                        errorTries1 = 5;
-                                    } catch (SQLException ex) {
-                                        LOGGER.error(ex.getMessage());
-                                        errorTries1++;
-                                    }
-                                    try {
-                                        stmtShot.execute();
-                                    } catch (SQLException ex) {
-                                        LOGGER.error(ex.getMessage());
-                                    }
-                                }
-                                errorTries2 = 5;
-                                //Not fully tested yet
-//                                if (errorTries2 < 3) {
-//                                    try {
-//                                        stmtAllShotLocal.execute();
-//                                        stmtShotLocal.execute();
-//                                        errorTries2 = 5;
-//                                    } catch (Exception ex) {
-//                                        errorTries2++;
-//                                    }
-//                                }
-                                if (errorTries1 >= 3 && errorTries1 != 5 && errorTries2 >= 3 && errorTries2 != 5) {
-                                    throw new SQLException("Error inputting shots for " + playerTableName);
-                                }
+                    }
+                    try {
+                        //Last name
+                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "string", 3, lastNameOrig);
+                        //First name
+                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "string", 4, firstNameOrig);
+                        //Year
+                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "string", 5, year);
+                        //Season Type
+                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "string", 6, seasonType);
+                        //Time
+                        String secondsFormat = eachShotJSONArray.getInt(9) < 10 ? "0" + eachShotJSONArray.getInt(9) : eachShotJSONArray.getInt(9) + "";
+                        insertParametersIntoAllPreparedStatements(allPreparedStatements, "time", 10, String.format("%d:", eachShotJSONArray.getInt(8)) + secondsFormat);
+                    } catch (Exception ex) {
+                        LOGGER.error(ex.getMessage());
+                    }
+                    //Execute PreparedStatements
+                    if (!newUniqueIds.contains(uniqueID)) {
+                        newUniqueIds.add(uniqueID);
+                        for (PreparedStatement stmt : allPreparedStatements) {
+                            try {
+                                stmt.execute();
+                            } catch (SQLException ex) {
+                                LOGGER.error(ex.getMessage());
                             }
                         }
                     }
                 }
-                LOGGER.info("\nTABLE NAME: " + playerTableName + "\n          TOTAL SHOTS: " + (newUniqueIds.size() + existingUniqueShotIDs.size()) + "\n" + "          NEW SHOTS ADDED: " + newUniqueIds.size());
-                totalNewShotsAdded = totalNewShotsAdded + newUniqueIds.size();
-            } catch (SQLException ex) {
-                LOGGER.error(ex.getMessage());
             }
+            LOGGER.info("\nTABLE NAME: " + playerTableName + "\n          TOTAL SHOTS: " + (newUniqueIds.size() + existingUniqueShotIDs.size()) + "\n" + "          NEW SHOTS ADDED: " + newUniqueIds.size());
+            totalNewShotsAdded += newUniqueIds.size();
         } catch (Exception ex) {
             LOGGER.error(ex.getMessage());
+        }
+    }
+
+    /**
+     * Inserts parameters of various types into prepared statements
+     *
+     * @param statements     list of all prepared statements
+     * @param dataType       data type of value, as a String
+     * @param parameterIndex index of prepared statement where value should be inserted
+     * @param value          the data to be inserted into prepared statement
+     * @throws SQLException   If setting prepared statement fails
+     * @throws ParseException If parsing date or time fails
+     */
+    protected void insertParametersIntoAllPreparedStatements(ArrayList<PreparedStatement> statements, String dataType, int parameterIndex, String value) throws SQLException, ParseException {
+        DateFormat dateFormatter = new SimpleDateFormat("yyyyMMdd");
+        dateFormatter.setTimeZone(TimeZone.getTimeZone("UTC"));
+        DateFormat timeFormatter = new SimpleDateFormat("mm:ss");
+        timeFormatter.setTimeZone(TimeZone.getTimeZone("UTC"));
+        for (PreparedStatement statement : statements) {
+            switch (dataType) {
+                case "string":
+                    statement.setString(parameterIndex, value);
+                    break;
+                case "integer":
+                    statement.setInt(parameterIndex, Integer.parseInt(value));
+                    break;
+                case "time":
+                    statement.setTime(parameterIndex, new java.sql.Time(timeFormatter.parse(value).getTime()), Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+                    break;
+                case "date":
+                    statement.setDate(parameterIndex, new java.sql.Date(dateFormatter.parse(value).getTime()), Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+                    break;
+                default:
+                    throw new NoSuchElementException("Invalid data type parameter");
+            }
         }
     }
 
     /**
      * Fetches URL and get shot data
-     * @param year year
-     * @param id player ID
+     *
+     * @param year   year
+     * @param id     player ID
      * @param season season type
-     * @return list of shots gathered from URL
+     * @return list of shots gathered from URL, as JSONArrays, or null if the response is not received
      */
-    private ArrayList<JSONArray> searchForShots(String year, int id, String season) {
-        ArrayList<JSONArray> allShotsAsJSONArrays = new ArrayList<>();
-        String url = "https://stats.nba.com/stats/shotchartdetail?AheadBehind=&CFID=33&CFPARAMS=" + year + "&ClutchTime=&Conference=&ContextFilter=&ContextMeasure=FGA&DateFrom=&DateTo=&Division=&EndPeriod=10&EndRange=28800&GROUP_ID=&GameEventID=&GameID=&GameSegment=&GroupID=&GroupMode=&GroupQuantity=5&LastNGames=0&LeagueID=00&Location=&Month=0&OnOff=&OpponentTeamID=0&Outcome=&PORound=0&Period=0&PlayerID=" + id + "&PlayerID1=&PlayerID2=&PlayerID3=&PlayerID4=&PlayerID5=&PlayerPosition=&PointDiff=&Position=&RangeType=0&RookieYear=&Season=&SeasonSegment=&SeasonType=" + season + "&ShotClockRange=&StartPeriod=1&StartRange=0&StarterBench=&TeamID=0&VsConference=&VsDivision=&VsPlayerID1=&VsPlayerID2=&VsPlayerID3=&VsPlayerID4=&VsPlayerID5=&VsTeamID=";
+    private JSONArray searchForShots(String year, int id, String season) {
+        String url = "https://stats.nba.com/stats/shotchartdetail?AheadBehind=&CFID=33&CFPARAMS="
+                + year + "&ClutchTime=&Conference=&ContextFilter=&ContextMeasure=FGA&DateFrom=&DateTo=&Division=&EndPeriod=10&EndRange=28800&GROUP_ID=&GameEventID=&GameID=&GameSegment=&GroupID=&GroupMode=&GroupQuantity=5&LastNGames=0&LeagueID=00&Location=&Month=0&OnOff=&OpponentTeamID=0&Outcome=&PORound=0&Period=0&PlayerID="
+                + id + "&PlayerID1=&PlayerID2=&PlayerID3=&PlayerID4=&PlayerID5=&PlayerPosition=&PointDiff=&Position=&RangeType=0&RookieYear=&Season=&SeasonSegment=&SeasonType="
+                + season + "&ShotClockRange=&StartPeriod=1&StartRange=0&StarterBench=&TeamID=0&VsConference=&VsDivision=&VsPlayerID1=&VsPlayerID2=&VsPlayerID3=&VsPlayerID4=&VsPlayerID5=&VsTeamID=";
         try {
             String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
-            JSONArray rowSets = new JSONObject(response).getJSONArray("resultSets").getJSONObject(0).getJSONArray("rowSet");
-            for (int index = 0; index < rowSets.length(); index++) {
-                allShotsAsJSONArrays.add(rowSets.getJSONArray(index));
-            }
+            LOGGER.debug("Response from " + url + ": " + response);
+            return new JSONObject(response).getJSONArray("resultSets").getJSONObject(0).getJSONArray("rowSet");
         } catch (Exception ex) {
             LOGGER.error(ex.getMessage());
         }
-        return allShotsAsJSONArrays;
+        return null;
     }
 
     /**
-     * Creates large shot table
+     * Creates large shot table with column indexing
+     *
+     * @param connShots1 connection to first shot database
+     * @param connShots2 connection to second shot database
      * @throws SQLException If creating table fails
      */
-    protected void createAllShotsTable() throws SQLException {
+    protected void createAllShotsTable(Connection connShots1, Connection connShots2) throws SQLException {
         String createAllShotTable = "CREATE TABLE IF NOT EXISTS all_shots (\n" +
                 "`uniqueshotid` varchar(100) NOT NULL,\n" +
                 "  `playerid` int NOT NULL,\n" +
@@ -481,7 +525,7 @@ public class ShotScraper implements ScraperUtilsInterface {
                 "  `shotzonearea` varchar(25) NOT NULL,\n" +
                 "  `shotzonerange` varchar(25) NOT NULL,\n" +
                 "  PRIMARY KEY (`uniqueshotid`),\n" +
-                "  UNIQUE KEY `NewTable_UN` (`uniqueshotid`),\n" +
+                "  UNIQUE KEY `all_shots_UN` (`uniqueshotid`),\n" +
                 "  KEY `index_playerid` (`playerid`)"
                 + ")\n"
                 + "ENGINE=InnoDB\n"
@@ -493,10 +537,13 @@ public class ShotScraper implements ScraperUtilsInterface {
 
     /**
      * Creates a shot table for a single player
+     *
      * @param playerTableName table name
+     * @param connShots1      connection to first shot database
+     * @param connShots2      connection to second shot database
      * @throws SQLException If creating table fails
      */
-    protected void createIndividualSeasonTable(String playerTableName) throws SQLException {
+    protected void createIndividualSeasonTable(String playerTableName, Connection connShots1, Connection connShots2) throws SQLException {
         String createTable = "CREATE TABLE IF NOT EXISTS " + playerTableName + " (\n"
                 + "	uniqueshotid varchar(100) NOT NULL,\n"
                 + "	playerid INT NOT NULL,\n"
@@ -527,84 +574,13 @@ public class ShotScraper implements ScraperUtilsInterface {
                 + "	shotzonebasic varchar(25) NOT NULL,\n"
                 + "	shotzonearea varchar(25) NOT NULL,\n"
                 + "	shotzonerange varchar(25) NOT NULL,\n"
-                + "	CONSTRAINT NewTable_UN UNIQUE KEY (uniqueshotid),\n"
-                + "	CONSTRAINT NewTable_PK PRIMARY KEY (uniqueshotid)\n"
+                + "	CONSTRAINT " + playerTableName + "_UN UNIQUE KEY (uniqueshotid),\n"
+                + "	CONSTRAINT " + playerTableName + "_PK PRIMARY KEY (uniqueshotid)\n"
                 + ")\n"
                 + "ENGINE=InnoDB\n"
                 + "DEFAULT CHARSET=utf8mb4\n"
                 + "COLLATE=utf8mb4_0900_ai_ci";
         connShots1.prepareStatement(createTable).execute();
         connShots2.prepareStatement(createTable).execute();
-    }
-
-    /**
-     * Updates shots only for current year
-     * @param seasonTypeSelector the season type
-     */
-    public void updateShotsForCurrentYear(String seasonTypeSelector) {
-        while (true) {
-            try {
-                HashMap<String, String> eachPlayerHashMap = RunHandler.popQueue();
-                if (eachPlayerHashMap == null) {
-                    break;
-                }
-                int playerID = Integer.parseInt(eachPlayerHashMap.get("playerID"));
-                String lastNameOrig = eachPlayerHashMap.get("lastNameOrig");
-                String firstNameOrig = eachPlayerHashMap.get("firstNameOrig");
-                String lastName = lastNameOrig.replaceAll("[^A-Za-z0-9]", "");
-                String firstName = firstNameOrig.replaceAll("[^A-Za-z0-9]", "");
-                switch (seasonTypeSelector) {
-                    case "preseason":
-                        processSingleSeasonType("preseason", "Preseason", "Preseason", "Preseason", lastName, lastNameOrig, firstName, firstNameOrig, playerID, ScraperUtilsInterface.super.getCurrentYear());
-                        break;
-                    case "regularseason":
-                        processSingleSeasonType("reg", "RegularSeason", "Regular%20Season", "Regular Season", lastName, lastNameOrig, firstName, firstNameOrig, playerID, ScraperUtilsInterface.super.getCurrentYear());
-                        break;
-                    case "playoffs":
-                        processSingleSeasonType("playoffs", "Playoffs", "Playoffs", "Playoffs", lastName, lastNameOrig, firstName, firstNameOrig, playerID, ScraperUtilsInterface.super.getCurrentYear());
-                        break;
-                    default:
-                        throw new IllegalStateException("Invalid season type: " + seasonTypeSelector);
-                }
-                RunHandler.addToNewShotCount(totalNewShotsAdded);
-            } catch (Exception ex) {
-                LOGGER.error(ex.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Scrapes shot data for a single season type for a single player
-     * @param seasonTypeQuery season type for SQL query
-     * @param seasonTypeTableName season type for table name
-     * @param seasonTypeURL season type for URL
-     * @param seasonTypeDataEntry season type for table data entry
-     * @param lastName player's modified last name
-     * @param lastNameOrig player's real last name
-     * @param firstName player's modified first name
-     * @param firstNameOrig player's real first name
-     * @param playerID player ID
-     * @param currentYear current year
-     */
-    private void processSingleSeasonType(String seasonTypeQuery, String seasonTypeTableName, String seasonTypeURL, String seasonTypeDataEntry, String lastName, String lastNameOrig, String firstName, String firstNameOrig, int playerID, String currentYear) {
-        try {
-            String sqlGetSeasonActivity = "SELECT " + seasonTypeQuery + " FROM " + lastName + "_" + firstName + "_" + playerID + "_individual_data WHERE year = \"" + currentYear + "\"";
-            ResultSet currentSeasonTypeActivityResultSet = connPlayers1.prepareStatement(sqlGetSeasonActivity).executeQuery();
-            while (currentSeasonTypeActivityResultSet.next()) {
-                if (currentSeasonTypeActivityResultSet.getInt("preseason") == 1) {
-                    String tableName = lastName + "_" + firstName + "_" + playerID + "_" + currentYear.substring(0, 4) + "_" + currentYear.substring(5) + "_" + seasonTypeTableName;
-                    createIndividualSeasonTable(tableName);
-                    ResultSet existingShotsResultSet = connShots1.prepareStatement("SELECT uniqueshotid FROM " + tableName).executeQuery();
-                    HashSet<String> existingUniqueIDs = new HashSet();
-                    while (existingShotsResultSet.next()) {
-                        existingUniqueIDs.add(existingShotsResultSet.getString("uniqueshotid"));
-                    }
-                    ArrayList<JSONArray> allShotsAsJSONArrays = searchForShots(currentYear, playerID, seasonTypeURL);
-                    insertShots(tableName, firstNameOrig, lastNameOrig, currentYear, seasonTypeDataEntry, allShotsAsJSONArrays, existingUniqueIDs);
-                }
-            }
-        } catch (Exception ex) {
-            LOGGER.error(ex.getMessage());
-        }
     }
 }
