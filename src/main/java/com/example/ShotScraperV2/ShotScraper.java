@@ -204,7 +204,7 @@ public class ShotScraper implements ScraperUtilsInterface {
      * @param onlyCurrentSeason should only search for current year and season type
      * @param currentSeasonType current season type
      */
-    public void getEveryShotWithMainThread(Connection connPlayers1, Connection connPlayers2, Connection connShots1, Connection connShots2, boolean onlyCurrentSeason, String currentSeasonType) {
+    public void getEveryShotWithMainThread(Connection connPlayers1, Connection connPlayers2, Connection connShots1, Connection connShots2, boolean onlyCurrentSeason, String currentSeasonType) throws InterruptedException {
         while (true) {
             //Exits while loop when queue return null
             Player polledPlayer = RunHandler.pollQueue();
@@ -245,6 +245,7 @@ public class ShotScraper implements ScraperUtilsInterface {
                             //Format table name
                             playerTableName = lastName + "_" + firstName + "_" + playerID + "_" + year.substring(0, 4) + "_" + year.substring(5) + "_" + eachSeasonType.replace(" ", "");
                             //Check if table exists already in database
+                            //If scraping all tables, skip if table exists already
                             int tableCounter = findExistingTables(connShots1, playerTableName, READER.getString("spring." + this.schemaShots1Alias + ".schemaname"));
                             if (onlyCurrentSeason || (!onlyCurrentSeason && tableCounter == 0)) {
                                 createIndividualSeasonTable(playerTableName, connShots1, connShots2);
@@ -269,6 +270,10 @@ public class ShotScraper implements ScraperUtilsInterface {
                 } catch (Exception ex) {
                     LOGGER.error(ex.getMessage());
                 }
+            }
+            //Pause to prevent server denying request
+            if (RunHandler.peekQueue() != null) {
+                Thread.sleep((long) (Math.random() * 20000));
             }
         }
         RunHandler.addToNewShotCount(totalNewShotsAdded);
