@@ -390,11 +390,11 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
             //Check if player exists in all players database
             if (!playerDetails[0].equals("") && !allPlayerIDs.contains(Integer.parseInt(playerDetails[0]))) {
                 //If player doesn't already exist, add to database
-                LOGGER.info("Player does not exist in DB: " + playerDetails[2] + " " + playerDetails[1]);
                 insertPlayerData(insertPlayerAll, playerDetails, connPlayers1, activityIndex);
                 if (connPlayers1 != connPlayers2) {
                     insertPlayerData(insertPlayerAll, playerDetails, connPlayers2, activityIndex);
                 }
+                LOGGER.info("Added player: " + playerDetails[2] + " " + playerDetails[1]);
                 //Relevant players only after 1996-97
                 if (Integer.parseInt(playerDetails[latestYearIndex]) >= 1996) {
                     insertPlayerData(insertPlayerRelevant, playerDetails, connPlayers1, activityIndex);
