@@ -158,7 +158,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
                 stmt.setInt(4, seasonActivity.get(2));
                 stmt.execute();
             }
-            LOGGER.info("Inserting " + playerTableName + " : " + year);
+            LOGGER.info("Inserting " + playerTableName + " : " + year+" (R: "+seasonActivity.get(0)+", Pre: "+seasonActivity.get(1)+", Post: "+seasonActivity.get(2)+")");
         } catch (SQLException ex) {
             LOGGER.error(ex.getMessage());
         }
@@ -225,8 +225,8 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
                 ArrayList<Integer> eachYearActivity = new ArrayList<>(Arrays.asList(-1, -1, -1));
                 //Set array with database values (either 1 or -1)
                 eachYearActivity.set(0, allYearData.getInt("reg"));
-                eachYearActivity.set(1, allYearData.getInt("playoffs"));
-                eachYearActivity.set(2, allYearData.getInt("preseason"));
+                eachYearActivity.set(1, allYearData.getInt("preseason"));
+                eachYearActivity.set(2, allYearData.getInt("playoffs"));
                 knownYearSeasonActivityMap.put(eachYear, eachYearActivity);
             }
             allYearData.close();
@@ -262,7 +262,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
                 String url = "https://stats.nba.com/stats/playerprofilev2?LeagueID=00&PerMode=PerGame&PlayerID=" + eachID;
                 String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
                 LOGGER.debug("Response from " + url + ": \n" + response);
-                StringBuilder sb = new StringBuilder(eachID + ": ");
+                StringBuilder sb = new StringBuilder("\n"+eachID + ": \n");
                 recordSeasons(new JSONObject(response), sb, yearSeasonActivityMap);
                 LOGGER.info(sb.toString());
                 exceptionRetryCounter = 5;
