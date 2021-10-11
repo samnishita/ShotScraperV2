@@ -1,99 +1,97 @@
 package com.example.ShotScraperV2;
 
+import com.example.ShotScraperV2.nbaobjects.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- *What parts of the scraper should run
+ * What parts of the scraper should run
  */
 @Component
-public class RunHandler implements ScraperUtilsInterface {
+public class RunHandler implements ScraperUtilsInterface, ApplicationListener<ApplicationReadyEvent> {
     private Logger LOGGER = LoggerFactory.getLogger(RunHandler.class);
 
     //Player scraper choices
     /**
      * Get basic team and player data
      */
-    private final boolean GET_TEAM_AND_PLAYER_DATA = false;
+    private boolean getTeamAndPlayerData = true;
     /**
-     * Get detailed player data for all players
+     * Get detailed player data for all players for the first time
      */
-    private final boolean GET_ALL_PLAYERS = false;
+    private boolean getAllPlayersForFirstTime = true;
     /**
-     * Get detailed player data for only active players
+     * Get detailed player data for only players active in the current year and season type
      */
-    private final boolean ONLY_ACTIVE_PLAYERS = false;
-    /**
-     * Disregard whether player exists in database while scraping
-     */
-    private final boolean SHOULD_RERUN = false;
-    /**
-     * Get detailed player data for only players active in the current season
-     */
-    private final boolean UPDATE_PLAYERS_FOR_CURRENT_YEAR_ONLY = false;
+    private boolean updatePlayersForCurrentYearOnly = false;
     /**
      * Group active players for each season
      */
-    private final boolean ORGANIZE_BY_YEAR = false;
+    private boolean organizePlayersByYear = false;
+
     //Shot scraper choices
     /**
-     * Get detailed shot data for all players
+     * Get detailed shot data for all players for first time
      */
-    private final boolean GET_ALL_SHOTS = false;
+    private boolean getAllShotsForFirstTime = true;
     /**
-     * Get detailed shot data for only players active in the current season
+     * Get detailed shot data for only players active in the current year and season type
      */
-    private final boolean UPDATE_SHOTS_FOR_CURRENT_YEAR = false;
+    private boolean updateShotsForCurrentYear = false;
     /**
      * Calculate the shot percentage for spaces on the court used for hex maps. Uses the OFFSET parameter to determine the size of the spaces
      */
-    private final boolean MAKE_SHOT_LOCATION_AVERAGES = false;
+    private boolean makeShotLocationAverages = false;
     /**
      * Calculate the shot percentage for zones on the court used for zone maps
      */
-    private final boolean MAKE_ZONE_AVERAGES = false;
+    private boolean makeZoneAverages = false;
     /**
      * Calculate the shot percentage for each distance from the basket
      */
-    private final boolean MAKE_DISTANCE_AVERAGES = false;
+    private boolean makeDistanceAverages = false;
     /**
      * Find all different types of shots present in the database
      */
-    private final boolean MAKE_PLAY_TYPE_TABLE = false;
+    private boolean makePlayTypeTable = false;
     /**
      * Will drop empty shot tables if a rerun is needed
      */
-    private final boolean DROP_ALL_EMPTY_SHOT_TABLES = false;
+    private boolean dropAllEmptyShotTables = false;
+
     //Misc scraper choices
     /**
      * Verify every player entry is consistent between databases
      */
-    private final boolean DOUBLE_CHECK_PLAYER_TABLES = false;
+    private boolean doubleCheckPlayerTables = false;
     /**
      * Verify every shot entry is consistent between databases
      */
-    private final boolean DOUBLE_CHECK_SHOT_TABLES = true;
+    private boolean doubleCheckShotTables = false;
     /**
      * Drop tables with discrepancies to rerun
      */
-    private final boolean DROP_MISMATCHED_TABLES = false;
+    private boolean dropMismatchedTables = false;
     /**
      * The present season type
      */
-    private String seasonType = "regularseason";// or preseason or playoffs
+    private String seasonType = "preseason";// or preseason or playoffs
     /**
      * How many threads should be running
      */
@@ -109,7 +107,7 @@ public class RunHandler implements ScraperUtilsInterface {
     /**
      * A thread safe queue accessible by all threads for retrieving the next search
      */
-    private static ConcurrentLinkedQueue<HashMap<String, String>> threadSafePlayerQueue = new ConcurrentLinkedQueue<>();
+    private static ConcurrentLinkedQueue<Player> threadSafePlayerQueue = new ConcurrentLinkedQueue<>();
 
     @Autowired
     private AllTeamAndPlayerScraper allTeamAndPlayerScraper;
@@ -118,62 +116,113 @@ public class RunHandler implements ScraperUtilsInterface {
     @Autowired
     private DatabaseUpdater databaseUpdater;
 
+    private final boolean IS_TEST = true;
+    private final ResourceBundle READER;
+
+
     /**
-     * Runs the desired parts of the scraper
-     * @param allTeamAndPlayerScraper
-     * @param dataDoubleChecker
-     * @param databaseUpdater
+     * Inject scraper dependencies
+     *
+     * @param allTeamAndPlayerScraper scraper for team and player data
+     * @param dataDoubleChecker       object to compare active database against established database to check data accuracy
+     * @param databaseUpdater         group of methods to update various general tables
      */
-    //Not fully tested for deployment, some methods commented out for now
     @Autowired
-    public RunHandler(AllTeamAndPlayerScraper allTeamAndPlayerScraper, DataDoubleChecker dataDoubleChecker, DatabaseUpdater databaseUpdater) {
+    public RunHandler(AllTeamAndPlayerScraper allTeamAndPlayerScraper, DataDoubleChecker dataDoubleChecker, DatabaseUpdater databaseUpdater) throws SQLException {
         //External storage must be attached for logging
         assertTrue(Files.isDirectory(Paths.get("/Volumes/easystore/AllShotScraperV2Logs")));
         this.allTeamAndPlayerScraper = allTeamAndPlayerScraper;
         this.dataDoubleChecker = dataDoubleChecker;
-        final ResourceBundle READER = ResourceBundle.getBundle("application");
+        READER = ResourceBundle.getBundle("application");
+    }
+
+    /**
+     * Adds new shots to the new shot count for logging purposes
+     *
+     * @param addedShots the number of new shots scraped
+     */
+    public static void addToNewShotCount(int addedShots) {
+        newShots += addedShots;
+    }
+
+    /**
+     * Gets the player data from the front of the queue
+     *
+     * @return hashMap of player info
+     */
+    public static Player pollQueue() {
+        return threadSafePlayerQueue.poll();
+    }
+
+    /**
+     * Creates a queue of all players and their data for threads to poll
+     */
+    protected void populateThreadSafeQueueWithPlayers(Connection connPlayers, boolean onlyActivePlayers, boolean currentYearOnly, boolean skipExistingPlayerTables, String schemaAlias) {
         try {
-            if (GET_TEAM_AND_PLAYER_DATA) {
-                allTeamAndPlayerScraper.getTeamAndPlayerData();
+            HashSet<String> existingTableNames = new HashSet<>();
+            //If skipping existing tables, find tables that already exist
+            if (skipExistingPlayerTables) {
+                ResultSet rsTables = connPlayers.getMetaData().getTables(READER.getString("spring." + schemaAlias + ".schemaname"), null, "%", new String[]{"TABLE"});
+                while (rsTables.next()) {
+                    existingTableNames.add(rsTables.getString(3));
+                }
+                rsTables.close();
             }
-            if (GET_ALL_PLAYERS) {
-                populateThreadSafeQueueWithPlayers();
-                final ArrayList<Thread> threads = new ArrayList<>();
-                for (int i = 0; i < THREAD_COUNT; i++) {
-                    Thread thread = new Thread(() -> {
-                        IndividualPlayerScraper individualPlayerScraper = new IndividualPlayerScraper(READER.getString("playerschema1"),
-                                READER.getString("playerlocation1"), READER.getString("playerschema2"), READER.getString("playerlocation2"));
-                        individualPlayerScraper.getAllActiveYearsUsingMain(SHOULD_RERUN);
-                    });
-                    threads.add(thread);
-                    thread.start();
-                    Thread.sleep(15000);
-                }
-                for (Thread thread : threads) {
-                    thread.join();
-                }
+            threadSafePlayerQueue = new ConcurrentLinkedQueue<>();
+            //Generate SQL
+            StringBuilder sqlSelectBuilder = new StringBuilder("SELECT * FROM player_relevant_data");
+            if (onlyActivePlayers && !currentYearOnly) {
+                sqlSelectBuilder.append(" WHERE currentlyactive=1");
+            } else if (!onlyActivePlayers && currentYearOnly) {
+                sqlSelectBuilder.append(" WHERE mostrecentactiveyear='").append(READER.getString("currentYear")).append("'");
+            } else if (onlyActivePlayers && currentYearOnly) {
+                sqlSelectBuilder.append(" WHERE currentlyactive=1 AND mostrecentactiveyear='").append(READER.getString("currentYear")).append("'");
             }
-            if (UPDATE_PLAYERS_FOR_CURRENT_YEAR_ONLY) {
-                populateThreadSafeQueueWithPlayers();
-                final ArrayList<Thread> threads = new ArrayList<>();
-                for (int i = 0; i < THREAD_COUNT; i++) {
-                    Thread thread = new Thread(() -> {
-                        IndividualPlayerScraper individualPlayerScraper = new IndividualPlayerScraper(READER.getString("playerschema1"),
-                                READER.getString("playerlocation1"), READER.getString("playerschema2"), READER.getString("playerlocation2"));
-                        individualPlayerScraper.updateForCurrentYear(ONLY_ACTIVE_PLAYERS, seasonType);
-                    });
-                    threads.add(thread);
-                    thread.start();
-                    Thread.sleep(15000);
-                }
-                for (Thread thread : threads) {
-                    thread.join();
+            ResultSet rsPlayers = connPlayers.prepareStatement(sqlSelectBuilder.toString()).executeQuery();
+            while (rsPlayers.next()) {
+                //Build table name
+                String tableName = rsPlayers.getString("lastname").replaceAll("[^A-Za-z0-9]", "") + "_"
+                        + rsPlayers.getString("firstname").replaceAll("[^A-Za-z0-9]", "") + "_"
+                        + rsPlayers.getInt("id") + "_individual_data";
+                //If not skipping tables, add player
+                //If skipping tables and table does not exist, add player
+                if (!skipExistingPlayerTables || !existingTableNames.contains(tableName)) {
+                    threadSafePlayerQueue.add(new Player(rsPlayers.getInt("id") + "", rsPlayers.getString("lastname"), rsPlayers.getString("firstname"),
+                            rsPlayers.getString("currentlyactive"), rsPlayers.getString("firstactiveyear"), rsPlayers.getString("mostrecentactiveyear")));
+                    LOGGER.info("Adding " + rsPlayers.getString("firstname") + " " + rsPlayers.getString("lastname") + " to queue");
                 }
             }
-            if (DOUBLE_CHECK_PLAYER_TABLES) {
-                dataDoubleChecker.comparePlayerTables(DROP_MISMATCHED_TABLES);
+            rsPlayers.close();
+        } catch (Exception ex) {
+            LOGGER.error(ex.getMessage());
+        }
+    }
+
+    /**
+     * Runs the desired scrapers/analyzers
+     */
+    protected void runScraper(String schemaPlayers1Alias, String schemaPlayers2Alias, String schemaShots1Alias, String schemaShots2Alias) throws SQLException {
+        //Create connections to databases to be used by single threaded processes
+        Connection connPlayersSingleThreaded1 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1Alias);
+        Connection connPlayersSingleThreaded2 = schemaPlayers1Alias.equals(schemaPlayers2Alias) ? connPlayersSingleThreaded1 : ScraperUtilsInterface.super.setNewConnection(schemaPlayers2Alias);
+        Connection connShotsSingleThreaded1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1Alias);
+        Connection connShotsSingleThreaded2 = schemaShots1Alias.equals(schemaShots2Alias) ? connShotsSingleThreaded1 : ScraperUtilsInterface.super.setNewConnection(schemaShots2Alias);
+        try {
+            if (getTeamAndPlayerData) {
+                allTeamAndPlayerScraper.getTeamAndPlayerData(connPlayersSingleThreaded1, connPlayersSingleThreaded2);
             }
-            if (MAKE_SHOT_LOCATION_AVERAGES) {
+            if (getAllPlayersForFirstTime) {
+                populateThreadSafeQueueWithPlayers(connPlayersSingleThreaded1, false, false, true, schemaPlayers1Alias);
+                scrapePlayers(schemaPlayers1Alias, schemaPlayers2Alias);
+            }
+            if (updatePlayersForCurrentYearOnly) {
+                populateThreadSafeQueueWithPlayers(connPlayersSingleThreaded1, true, true, false, schemaPlayers1Alias);
+                scrapePlayers(schemaPlayers1Alias, schemaPlayers2Alias);
+            }
+            if (doubleCheckPlayerTables) {
+                dataDoubleChecker.comparePlayerTables(dropMismatchedTables);
+            }
+            if (makeShotLocationAverages) {
                 for (int year = 1996; year <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4)); year++) {
                     databaseUpdater.createShotLocationAverages(year + "", OFFSET, databaseUpdater.getConnShots1());
 //                    databaseUpdater.createShotLocationAverages(year + "", OFFSET, databaseUpdater.getConnShots2());
@@ -181,7 +230,7 @@ public class RunHandler implements ScraperUtilsInterface {
                 databaseUpdater.createShotLocationAverages("", OFFSET, databaseUpdater.getConnShots1());
 //                databaseUpdater.createShotLocationAverages("", OFFSET, databaseUpdater.getConnShots2());
             }
-            if (MAKE_ZONE_AVERAGES) {
+            if (makeZoneAverages) {
                 for (int year = 1996; year <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4)); year++) {
                     databaseUpdater.getZonedAverages(year + "", databaseUpdater.getConnShots1());
 //                    databaseUpdater.getZonedAverages(year + "", databaseUpdater.getConnShots2());
@@ -189,11 +238,11 @@ public class RunHandler implements ScraperUtilsInterface {
                 databaseUpdater.getZonedAverages("", databaseUpdater.getConnShots1());
 //                databaseUpdater.getZonedAverages("", databaseUpdater.getConnShots2());
             }
-            if (ORGANIZE_BY_YEAR) {
+            if (organizePlayersByYear) {
                 databaseUpdater.organizeByYear(databaseUpdater.getConnPlayers1());
 //                databaseUpdater.organizeByYear(databaseUpdater.getConnPlayers2());
             }
-            if (MAKE_DISTANCE_AVERAGES) {
+            if (makeDistanceAverages) {
                 for (int year = 1996; year <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4)); year++) {
                     databaseUpdater.getDistancesAndAvg(year + "", databaseUpdater.getConnShots1());
 //                    databaseUpdater.getZonedAverages(year + "", databaseUpdater.getConnShots2());
@@ -201,57 +250,25 @@ public class RunHandler implements ScraperUtilsInterface {
                 databaseUpdater.getDistancesAndAvg("", databaseUpdater.getConnShots1());
                 //                databaseUpdater.organizeByYear(databaseUpdater.getConnPlayers2());
             }
-            if (MAKE_PLAY_TYPE_TABLE) {
+            if (makePlayTypeTable) {
                 databaseUpdater.createPlayTypeTable(databaseUpdater.getConnShots1());
                 //databaseUpdater.createPlayTypeTable( databaseUpdater.getConnShots2());
             }
-            if (GET_ALL_SHOTS) {
-                try {
-                    populateThreadSafeQueueWithPlayers();
-                    final ArrayList<Thread> threads = new ArrayList<>();
-                    for (int i = 0; i < THREAD_COUNT; i++) {
-                        Thread thread = new Thread(() -> {
-                            ShotScraper shotScraper = new ShotScraper(
-                                    READER.getString("shotschema1"), READER.getString("shotlocation1"), READER.getString("shotschema2"), READER.getString("shotlocation2"),
-                                    READER.getString("playerschema1"), READER.getString("playerlocation1"), READER.getString("playerschema2"), READER.getString("playerlocation2"));
-                            shotScraper.getEveryShotWithMainThread();
-                        });
-                        threads.add(thread);
-                        thread.start();
-                        Thread.sleep(5000);
-                    }
-                    for (Thread thread : threads) {
-                        thread.join();
-                    }
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                }
+            if (getAllShotsForFirstTime) {
+                populateThreadSafeQueueWithPlayers(connPlayersSingleThreaded1, false, false, false, schemaPlayers1Alias);
+                scrapeShots(schemaPlayers1Alias, schemaPlayers2Alias, schemaShots1Alias, schemaShots2Alias, false, "");
                 LOGGER.info("Total New Shots Added: " + newShots);
             }
-            if (DOUBLE_CHECK_SHOT_TABLES) {
-                dataDoubleChecker.compareShotTables(DROP_MISMATCHED_TABLES);
-            }
-            if (UPDATE_SHOTS_FOR_CURRENT_YEAR) {
-                populateThreadSafeQueueWithPlayers();
-                final ArrayList<Thread> threads = new ArrayList<>();
-                for (int i = 0; i < THREAD_COUNT; i++) {
-                    Thread thread = new Thread(() -> {
-                        ShotScraper shotScraper = new ShotScraper(
-                                READER.getString("shotschema1"), READER.getString("shotlocation1"), READER.getString("shotschema2"), READER.getString("shotlocation2"),
-                                READER.getString("playerschema1"), READER.getString("playerlocation1"), READER.getString("playerschema2"), READER.getString("playerlocation2"));
-                        shotScraper.updateShotsForCurrentYear(seasonType);
-                    });
-                    threads.add(thread);
-                    thread.start();
-                    Thread.sleep(15000);
-                }
-                for (Thread thread : threads) {
-                    thread.join();
-                }
+            if (updateShotsForCurrentYear) {
+                populateThreadSafeQueueWithPlayers(connPlayersSingleThreaded1, true, true, false, schemaPlayers1Alias);
+                scrapeShots(schemaPlayers1Alias, schemaPlayers2Alias, schemaShots1Alias, schemaShots2Alias, true, seasonType);
                 LOGGER.info("Total New Shots Added: " + newShots);
             }
-            if (DROP_ALL_EMPTY_SHOT_TABLES) {
-                Connection connShots = ScraperUtilsInterface.super.setNewConnection(READER.getString("shotschema1"), READER.getString("shotlocation1"));
+            if (doubleCheckShotTables) {
+                dataDoubleChecker.compareShotTables(dropMismatchedTables);
+            }
+            if (dropAllEmptyShotTables) {
+                Connection connShots = ScraperUtilsInterface.super.setNewConnection(READER.getString("shotschema1"));
                 ResultSet rs = connShots.getMetaData().getTables(READER.getString("shotschema1"), null, "%", null);
                 //Get each table title
                 int counter = 0;
@@ -277,54 +294,106 @@ public class RunHandler implements ScraperUtilsInterface {
         } catch (Exception ex) {
             LOGGER.error(ex.getMessage());
         }
-        LOGGER.info("END OF RUN");
-        System.exit(0);
-    }
-
-    /**
-     * Adds new shots to the new shot count for logging purposes
-     * @param addedShots the number of new shots scraped
-     */
-    public static void addToNewShotCount(int addedShots) {
-        newShots += addedShots;
-    }
-
-    /**
-     * Gets the player data from the front of the queue
-     * @return hashMap of player info
-     */
-    public static HashMap<String, String> popQueue() {
-        return threadSafePlayerQueue.poll();
-    }
-
-    /**
-     * Creates a queue of all players and their data for threads to poll
-     */
-    private void populateThreadSafeQueueWithPlayers() {
-        try {
-            final ResourceBundle READER = ResourceBundle.getBundle("application");
-            threadSafePlayerQueue = new ConcurrentLinkedQueue();
-            Connection connPlayers1 = ScraperUtilsInterface.super.setNewConnection(READER.getString("playerschema1"), READER.getString("playerlocation1"));
-            String sqlSelect = "SELECT * FROM player_relevant_data";
-            if (ONLY_ACTIVE_PLAYERS) {
-                sqlSelect = sqlSelect + " WHERE currentlyactive=1";
-            }
-            ResultSet rsPlayers = connPlayers1.prepareStatement(sqlSelect).executeQuery();
-            HashMap<String, String> eachPlayerHashMap;
-            while (rsPlayers.next()) {
-                eachPlayerHashMap = new HashMap<>();
-                eachPlayerHashMap.put("playerID", rsPlayers.getInt("id") + "");
-                eachPlayerHashMap.put("lastNameOrig", rsPlayers.getString("lastname"));
-                eachPlayerHashMap.put("firstNameOrig", rsPlayers.getString("firstname"));
-                eachPlayerHashMap.put("firstactiveyear", rsPlayers.getString("firstactiveyear"));
-                eachPlayerHashMap.put("mostrecentactiveyear", rsPlayers.getString("mostrecentactiveyear"));
-                eachPlayerHashMap.put("currentlyactive", rsPlayers.getString("currentlyactive"));
-                threadSafePlayerQueue.add(eachPlayerHashMap);
-            }
-        } catch (Exception ex) {
-            LOGGER.error(ex.getMessage());
+        connPlayersSingleThreaded1.close();
+        if (!connPlayersSingleThreaded1.equals(connPlayersSingleThreaded2)) {
+            connPlayersSingleThreaded2.close();
         }
-
+        connShotsSingleThreaded1.close();
+        if (!connShotsSingleThreaded1.equals(connShotsSingleThreaded2)) {
+            connShotsSingleThreaded2.close();
+        }
+        LOGGER.info("END OF RUN");
     }
 
+    /**
+     * Runs the scraper once the application is ready
+     *
+     * @param applicationReadyEvent
+     */
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent applicationReadyEvent) {
+        try {
+//            runScraper("playerlocal", "playerremote", "shotlocal", "shotremote");
+            runScraper("playerlocal", "playerlocal", "shotlocal", "shotlocal");
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    protected void addToQueueForTesting(Player player) {
+        threadSafePlayerQueue.add(player);
+    }
+
+    public static Player peekQueue() {
+        return threadSafePlayerQueue.peek();
+    }
+
+    protected void scrapePlayers(String schemaPlayers1, String schemaPlayers2) throws InterruptedException {
+        final ArrayList<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < THREAD_COUNT; i++) {
+            //Create scraper object and connections for each thread
+            Thread thread = new Thread(() -> {
+                IndividualPlayerScraper individualPlayerScraper = new IndividualPlayerScraper(schemaPlayers1, schemaPlayers2);
+                try {
+                    Connection connPlayersEachThread1 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1);
+                    Connection connPlayersEachThread2 = schemaPlayers1.equals(schemaPlayers2) ? connPlayersEachThread1 : ScraperUtilsInterface.super.setNewConnection(schemaPlayers2);
+                    try {
+                        individualPlayerScraper.getPlayerActiveYears(connPlayersEachThread1, connPlayersEachThread2);
+                    } catch (InterruptedException ex) {
+                        LOGGER.error(ex.getMessage());
+                    }
+                    connPlayersEachThread1.close();
+                    if (!connPlayersEachThread1.equals(connPlayersEachThread2)) {
+                        connPlayersEachThread2.close();
+                    }
+                } catch (SQLException ex) {
+                    LOGGER.error(ex.getMessage());
+                }
+            });
+            threads.add(thread);
+            thread.start();
+            //Prevent all threads from starting at the same time and sending too many requests in a short time
+            Thread.sleep(15000);
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+    }
+
+    protected void scrapeShots(String schemaPlayers1, String schemaPlayers2, String schemaShots1, String schemaShots2, boolean onlyCurrentSeason, String currentSeasonType) throws InterruptedException {
+        final ArrayList<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < THREAD_COUNT; i++) {
+            Thread thread = new Thread(() -> {
+                ShotScraper shotScraper = new ShotScraper(schemaShots1, schemaShots2, schemaPlayers1, schemaPlayers2,
+                        new IndividualPlayerScraper(schemaPlayers1, schemaPlayers2));
+                try {
+                    Connection connPlayersEachThread1 = ScraperUtilsInterface.super.setNewConnection(schemaPlayers1);
+                    Connection connPlayersEachThread2 = schemaPlayers1.equals(schemaPlayers2) ? connPlayersEachThread1 : ScraperUtilsInterface.super.setNewConnection(schemaPlayers2);
+                    Connection connShotsEachThread1 = ScraperUtilsInterface.super.setNewConnection(schemaShots1);
+                    Connection connShotsEachThread2 = schemaShots1.equals(schemaShots2) ? connShotsEachThread1 : ScraperUtilsInterface.super.setNewConnection(schemaShots2);
+                    try {
+                        shotScraper.getEveryShotWithMainThread(connPlayersEachThread1, connPlayersEachThread2, connShotsEachThread1, connShotsEachThread2, onlyCurrentSeason, currentSeasonType);
+                    } catch (Exception ex) {
+                        LOGGER.error(ex.getMessage());
+                    }
+                    connPlayersEachThread1.close();
+                    if (!connPlayersEachThread1.equals(connPlayersEachThread2)) {
+                        connPlayersEachThread2.close();
+                    }
+                    connShotsEachThread1.close();
+                    if (!connShotsEachThread1.equals(connShotsEachThread2)) {
+                        connShotsEachThread2.close();
+                    }
+                } catch (SQLException ex) {
+                    LOGGER.error(ex.getMessage());
+                }
+            });
+            threads.add(thread);
+            thread.start();
+            Thread.sleep(5000);
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+    }
 }
