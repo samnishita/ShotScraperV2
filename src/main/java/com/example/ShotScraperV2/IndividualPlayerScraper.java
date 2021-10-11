@@ -30,6 +30,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
      *
      * @param connPlayers1 connection to first player database
      * @param connPlayers2 connection to second player database
+     * @throws InterruptedException If delay between searches is interrupted
      */
     public void getPlayerActiveYears(Connection connPlayers1, Connection connPlayers2) throws InterruptedException {
         //Retired players who have no active years
@@ -207,7 +208,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
     }
 
     /**
-     * Organizes player's active years by season type and inserts them into the given player table when not already present
+     * Organizes player's active years by season type and inserts or updates the given table with the new data
      *
      * @param yearSeasonActivityMap map with (K,V) of (year a player is active, array of player activity status in each season type)
      * @param playerTableName       player's table name
@@ -254,8 +255,9 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
      * @param eachID    player ID
      * @param firstName player first name
      * @param lastName  player last name
+     * @param yearSeasonActivityMap map with (K,V) of (year a player is active, array of player activity status in each season type)
      */
-    private void loopSearchIfError(String eachID, String firstName, String lastName, HashMap<String, ArrayList<Integer>> yearSeasonActivityMap) throws TimeoutException {
+    private void loopSearchIfError(String eachID, String firstName, String lastName, HashMap<String, ArrayList<Integer>> yearSeasonActivityMap){
         int exceptionRetryCounter = 0;
         while (exceptionRetryCounter < 3) {
             try {
@@ -266,7 +268,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
                 recordSeasons(new JSONObject(response), sb, yearSeasonActivityMap);
                 LOGGER.info(sb.toString());
                 exceptionRetryCounter = 5;
-            } catch (InterruptedException | IOException ex) {
+            } catch (Exception ex) {
                 exceptionRetryCounter++;
                 LOGGER.error("Timeout caught in search for " + firstName + " " + lastName + ", Retrying (" + exceptionRetryCounter + ")");
             }
