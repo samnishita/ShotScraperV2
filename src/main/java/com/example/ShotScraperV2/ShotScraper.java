@@ -17,7 +17,6 @@ import java.util.*;
  */
 public class ShotScraper implements ScraperUtilsInterface {
     private final Logger LOGGER = LoggerFactory.getLogger(ShotScraper.class);
-    private final ResourceBundle READER = ResourceBundle.getBundle("application");
     private String schemaShots1Alias, schemaShots2Alias, schemaPlayers1Alias, schemaPlayers2Alias;
     /**
      * Map of column name and the normal readable version of the season type
@@ -246,14 +245,14 @@ public class ShotScraper implements ScraperUtilsInterface {
                             playerTableName = lastName + "_" + firstName + "_" + playerID + "_" + year.substring(0, 4) + "_" + year.substring(5) + "_" + eachSeasonType.replace(" ", "");
                             //Check if table exists already in database
                             //If scraping all tables, skip if table exists already
-                            int tableCounter = findExistingTables(connShots1, playerTableName, READER.getString("spring." + this.schemaShots1Alias + ".schemaname"));
-                            if (onlyCurrentSeason || (!onlyCurrentSeason && tableCounter == 0)) {
-                                createIndividualSeasonTable(playerTableName, connShots1, connShots2);
+                            int tableCounter = findExistingTables(connShots1, playerTableName, ScraperUtilsInterface.super.getSchemaName(schemaShots1Alias));
+                            if (onlyCurrentSeason || tableCounter == 0) {
                                 //URL parameters can be slightly different from normal
                                 //Get the shot data for the current parameters
                                 JSONArray allShotsAsJSONArray = searchForShots(year, playerID, mapDBColumnToURLParamName.get(eachSeasonType));
                                 //If there is at least 1 shot recorded that player during that season
                                 if (allShotsAsJSONArray != null && !allShotsAsJSONArray.isEmpty()) {
+                                    createIndividualSeasonTable(playerTableName, connShots1, connShots2);
                                     HashSet<String> existingUniqueShotIds = new HashSet<>();
                                     if (onlyCurrentSeason) {
                                         findExistingShots(connShots1, playerTableName, existingUniqueShotIds);
@@ -481,12 +480,16 @@ public class ShotScraper implements ScraperUtilsInterface {
                 + year + "&ClutchTime=&Conference=&ContextFilter=&ContextMeasure=FGA&DateFrom=&DateTo=&Division=&EndPeriod=10&EndRange=28800&GROUP_ID=&GameEventID=&GameID=&GameSegment=&GroupID=&GroupMode=&GroupQuantity=5&LastNGames=0&LeagueID=00&Location=&Month=0&OnOff=&OpponentTeamID=0&Outcome=&PORound=0&Period=0&PlayerID="
                 + id + "&PlayerID1=&PlayerID2=&PlayerID3=&PlayerID4=&PlayerID5=&PlayerPosition=&PointDiff=&Position=&RangeType=0&RookieYear=&Season=&SeasonSegment=&SeasonType="
                 + season + "&ShotClockRange=&StartPeriod=1&StartRange=0&StarterBench=&TeamID=0&VsConference=&VsDivision=&VsPlayerID1=&VsPlayerID2=&VsPlayerID3=&VsPlayerID4=&VsPlayerID5=&VsTeamID=";
-        try {
-            String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
-            LOGGER.debug("Response from " + url + ": " + response);
-            return new JSONObject(response).getJSONArray("resultSets").getJSONObject(0).getJSONArray("rowSet");
-        } catch (Exception ex) {
-            LOGGER.error(ex.getMessage());
+        int exceptionRetryCounter = 0;
+        while (exceptionRetryCounter < 3) {
+            try {
+                String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
+                LOGGER.debug("Response from " + url + ": " + response);
+                return new JSONObject(response).getJSONArray("resultSets").getJSONObject(0).getJSONArray("rowSet");
+            } catch (Exception ex) {
+                LOGGER.error(ex.getMessage());
+                exceptionRetryCounter++;
+            }
         }
         return null;
     }

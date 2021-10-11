@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.ResourceBundle;
 
 /**
  * Scraper for basic NBA team and player data
@@ -46,8 +45,8 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
         createGeneralTablesIfNecessary(connPlayers1, schema1);
         createGeneralTablesIfNecessary(connPlayers2, schema2);
         //Record updated players, activity status, and active years for logging the results
-        HashMap<String, Integer> updatedPlayerActivities = new HashMap();
-        HashMap<String, Integer> updatedLatestActiveYears = new HashMap();
+        HashMap<String, Integer> updatedPlayerActivities = new HashMap<>();
+        HashMap<String, Integer> updatedLatestActiveYears = new HashMap<>();
         String response = ScraperUtilsInterface.super.fetchSpecificURL("https://www.nba.com/stats/js/data/ptsd/stats_ptsd.js");
         //Parse response
         String[] splitResponse = response.split("\"teams\"")[1].split("\"players\"");
@@ -66,16 +65,15 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
      * <p>
      * The misc table is initialized with specific fields
      *
-     * @param conn   the connection to the desired database
-     * @param schema the database schema
+     * @param conn        the connection to the desired database
+     * @param schemaAlias the alias of the database schema
      * @throws SQLException If table creation fails
      */
-    protected void createGeneralTablesIfNecessary(Connection conn, String schema) throws SQLException {
-        HashSet<String> allPlayerTables = new HashSet();
-        ResourceBundle reader = ResourceBundle.getBundle("application");
+    protected void createGeneralTablesIfNecessary(Connection conn, String schemaAlias) throws SQLException {
+        HashSet<String> allPlayerTables = new HashSet<>();
         String sqlSelect = "SELECT table_name FROM information_schema.tables";
-        if (!schema.equals("")) {
-            sqlSelect = sqlSelect + " WHERE table_schema = '" + reader.getString("spring." + schema + ".schemaname") + "'";
+        if (!schemaAlias.equals("")) {
+            sqlSelect = sqlSelect + " WHERE table_schema = '" + ScraperUtilsInterface.super.getSchemaName(schemaAlias) + "'";
         }
         //Get all tables and create if tables don't exist
         ResultSet allTablesRS = conn.prepareStatement(sqlSelect).executeQuery();
@@ -150,7 +148,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
     private HashSet<Integer> getAllIds(String sql, Connection connPlayers1, Connection connPlayers2) throws SQLException {
         ResultSet resultSet1 = connPlayers1.prepareStatement(sql).executeQuery();
         ResultSet resultSet2 = connPlayers2.prepareStatement(sql).executeQuery();
-        HashSet<Integer> uniqueIds = new HashSet();
+        HashSet<Integer> uniqueIds = new HashSet<>();
         while (resultSet1.next()) {
             uniqueIds.add(resultSet1.getInt("id"));
         }

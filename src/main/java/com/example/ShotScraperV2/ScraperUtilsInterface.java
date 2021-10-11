@@ -5,7 +5,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -56,11 +55,10 @@ public interface ScraperUtilsInterface {
      *
      * @param url The URL to be fetched
      * @return The response body from the URL as a String
-     * @throws HttpTimeoutException If the request times out
      * @throws InterruptedException If the request is interrupted
      * @throws IOException          If the request is interrupted
      */
-    default String fetchSpecificURL(String url) throws HttpTimeoutException, InterruptedException, IOException {
+    default String fetchSpecificURL(String url) throws InterruptedException, IOException {
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .header("accept", "application/json")
@@ -72,5 +70,16 @@ public interface ScraperUtilsInterface {
                 .build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         return response.body();
+    }
+
+    /**
+     * Gets real database schema from alias
+     *
+     * @param schemaAlias alias of database schema
+     * @return real database schema
+     */
+    default String getSchemaName(String schemaAlias) {
+        ResourceBundle reader = ResourceBundle.getBundle("application");
+        return reader.getString("spring." + schemaAlias + ".schemaname");
     }
 }
