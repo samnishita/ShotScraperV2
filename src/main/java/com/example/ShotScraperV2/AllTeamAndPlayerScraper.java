@@ -341,7 +341,7 @@ public class AllTeamAndPlayerScraper implements ScraperUtilsInterface {
             } else {
                 //Some entries are empty
                 if (teamDetails.length > 3) {
-                    LOGGER.info("Team already exists in DB: " + teamDetails[3] + " " + teamDetails[4]);
+                    LOGGER.debug("Team already exists in DB: " + teamDetails[3] + " " + teamDetails[4]);
                 }
             }
         }
