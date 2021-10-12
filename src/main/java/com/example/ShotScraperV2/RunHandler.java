@@ -35,11 +35,11 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
     /**
      * Get detailed player data for all players for the first time
      */
-    private boolean getAllPlayersForFirstTime = true;
+    private boolean getAllPlayersForFirstTime = false;
     /**
      * Get detailed player data for only players active in the current year and season type
      */
-    private boolean updatePlayersForCurrentYearOnly = false;
+    private boolean updatePlayersForCurrentYearOnly = true;
     /**
      * Group active players for each season
      */
@@ -49,11 +49,11 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
     /**
      * Get detailed shot data for all players for first time
      */
-    private boolean getAllShotsForFirstTime = true;
+    private boolean getAllShotsForFirstTime = false;
     /**
      * Get detailed shot data for only players active in the current year and season type
      */
-    private boolean updateShotsForCurrentYear = false;
+    private boolean updateShotsForCurrentYear = true;
     /**
      * Calculate the shot percentage for spaces on the court used for hex maps. Uses the OFFSET parameter to determine the size of the spaces
      */
@@ -83,7 +83,8 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
     /**
      * Verify every shot entry is consistent between databases
      */
-    private boolean doubleCheckShotTables = false;
+    private boolean doubleCheckShotTables = true;
+    private boolean checkFullShots = false;
     /**
      * Drop tables with discrepancies to rerun
      */
@@ -91,7 +92,7 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
     /**
      * The present season type
      */
-    private String seasonType = "preseason";// or preseason or playoffs
+    private String seasonType = "preseason";// reg, preseason, or playoffs
     /**
      * How many threads should be running
      */
@@ -116,7 +117,6 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
     @Autowired
     private DatabaseUpdater databaseUpdater;
 
-    private final boolean IS_TEST = true;
     private final ResourceBundle READER;
 
 
@@ -162,7 +162,7 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
             HashSet<String> existingTableNames = new HashSet<>();
             //If skipping existing tables, find tables that already exist
             if (skipExistingPlayerTables) {
-                ResultSet rsTables = connPlayers.getMetaData().getTables(READER.getString("spring." + schemaAlias + ".schemaname"), null, "%", new String[]{"TABLE"});
+                ResultSet rsTables = connPlayers.getMetaData().getTables(ScraperUtilsInterface.super.getSchemaName(schemaAlias), null, "%", new String[]{"TABLE"});
                 while (rsTables.next()) {
                     existingTableNames.add(rsTables.getString(3));
                 }
@@ -220,7 +220,7 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
                 scrapePlayers(schemaPlayers1Alias, schemaPlayers2Alias);
             }
             if (doubleCheckPlayerTables) {
-                dataDoubleChecker.comparePlayerTables(dropMismatchedTables);
+                dataDoubleChecker.comparePlayerTables(dropMismatchedTables, schemaPlayers1Alias, "playertrusted");
             }
             if (makeShotLocationAverages) {
                 for (int year = 1996; year <= Integer.parseInt(ScraperUtilsInterface.super.getCurrentYear().substring(0, 4)); year++) {
@@ -265,11 +265,11 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
                 LOGGER.info("Total New Shots Added: " + newShots);
             }
             if (doubleCheckShotTables) {
-                dataDoubleChecker.compareShotTables(dropMismatchedTables);
+                dataDoubleChecker.compareShotTables(dropMismatchedTables, checkFullShots, schemaPlayers1Alias, schemaShots1Alias, "shottrusted");
             }
             if (dropAllEmptyShotTables) {
-                Connection connShots = ScraperUtilsInterface.super.setNewConnection(READER.getString("shotschema1"));
-                ResultSet rs = connShots.getMetaData().getTables(READER.getString("shotschema1"), null, "%", null);
+                Connection connShots = ScraperUtilsInterface.super.setNewConnection(schemaShots1Alias);
+                ResultSet rs = connShots.getMetaData().getTables(ScraperUtilsInterface.super.getSchemaName(schemaShots1Alias), null, "%", null);
                 //Get each table title
                 int counter = 0;
                 String tableTitle, sqlDrop, sqlSelect;
@@ -282,13 +282,14 @@ public class RunHandler implements ScraperUtilsInterface, ApplicationListener<Ap
                         rows = connShots.prepareStatement(sqlSelect).executeQuery();
                         rows.next();
                         if (rows.getInt("count(*)") == 0) {
-                            sqlDrop = "DROP TABLE `" + READER.getString("shotschema1") + "`.`" + tableTitle + "`";
+                            sqlDrop = "DROP TABLE `" + ScraperUtilsInterface.super.getSchemaName(schemaShots1Alias) + "`.`" + tableTitle + "`";
                             connShots.prepareStatement(sqlDrop).execute();
                             LOGGER.info("Dropped " + tableTitle);
                             counter++;
                         }
                     }
                 }
+                rs.close();
                 LOGGER.info("Final Drop Counter: " + counter);
             }
         } catch (Exception ex) {
