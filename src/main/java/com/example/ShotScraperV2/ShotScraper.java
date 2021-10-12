@@ -175,22 +175,21 @@ public class ShotScraper implements ScraperUtilsInterface {
      * Finds if given shot table exists in given schema
      *
      * @param connShots     connection to shot database
-     * @param shotTableName name of desired shot table
      * @param schema        database schema
      * @return number of tables found
      */
-    protected int findExistingTables(Connection connShots, String shotTableName, String schema) {
-        int tableCounter = 0;
+    protected HashSet<String> findExistingTables(Connection connShots, String schema) {
+        HashSet<String> existingTables = new HashSet<>();
         try {
-            ResultSet shotTablesRS = connShots.getMetaData().getTables(schema, null, shotTableName, new String[]{"TABLE"});
+            ResultSet shotTablesRS = connShots.getMetaData().getTables(schema, null, "%", new String[]{"TABLE"});
             while (shotTablesRS.next()) {
-                tableCounter++;
+                existingTables.add(shotTablesRS.getString(3));
             }
             shotTablesRS.close();
         } catch (Exception ex) {
             LOGGER.error(ex.getMessage());
         }
-        return tableCounter;
+        return existingTables;
     }
 
     /**
@@ -204,6 +203,7 @@ public class ShotScraper implements ScraperUtilsInterface {
      * @param currentSeasonType current season type
      */
     public void getEveryShotWithMainThread(Connection connPlayers1, Connection connPlayers2, Connection connShots1, Connection connShots2, boolean onlyCurrentSeason, String currentSeasonType) throws InterruptedException {
+        HashSet<String> allExistingTables = findExistingTables(connShots1, ScraperUtilsInterface.super.getSchemaName(schemaShots1Alias));
         while (true) {
             //Exits while loop when queue return null
             Player polledPlayer = RunHandler.pollQueue();
@@ -245,14 +245,13 @@ public class ShotScraper implements ScraperUtilsInterface {
                             playerTableName = lastName + "_" + firstName + "_" + playerID + "_" + year.substring(0, 4) + "_" + year.substring(5) + "_" + eachSeasonType.replace(" ", "");
                             //Check if table exists already in database
                             //If scraping all tables, skip if table exists already
-                            int tableCounter = findExistingTables(connShots1, playerTableName, ScraperUtilsInterface.super.getSchemaName(schemaShots1Alias));
-                            if (onlyCurrentSeason || tableCounter == 0) {
+                            if (onlyCurrentSeason || !allExistingTables.contains(playerTableName)) {
                                 //URL parameters can be slightly different from normal
                                 //Get the shot data for the current parameters
                                 JSONArray allShotsAsJSONArray = searchForShots(year, playerID, mapDBColumnToURLParamName.get(eachSeasonType));
+                                createIndividualSeasonTable(playerTableName, connShots1, connShots2);
                                 //If there is at least 1 shot recorded that player during that season
                                 if (allShotsAsJSONArray != null && !allShotsAsJSONArray.isEmpty()) {
-                                    createIndividualSeasonTable(playerTableName, connShots1, connShots2);
                                     HashSet<String> existingUniqueShotIds = new HashSet<>();
                                     if (onlyCurrentSeason) {
                                         findExistingShots(connShots1, playerTableName, existingUniqueShotIds);
@@ -272,7 +271,7 @@ public class ShotScraper implements ScraperUtilsInterface {
             }
             //Pause to prevent server denying request
             if (RunHandler.peekQueue() != null) {
-                Thread.sleep((long) (Math.random() * 20000));
+                Thread.sleep((long) (Math.random() * 10000));
             }
         }
         RunHandler.addToNewShotCount(totalNewShotsAdded);
