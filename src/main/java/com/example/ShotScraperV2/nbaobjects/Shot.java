@@ -7,7 +7,7 @@ public class Shot {
     private int playerId, gameId, gameEventId, minutes, seconds, x, y, distance, make, period, teamId, awayTeamId, homeTeamId, atHome;
 
     public Shot(String lastName, String firstName, String season, String seasonType, String date, String time, String shotType, String playType, String teamName, String awayTeamName, String homeTeamName, String shotZoneBasic, String shotZoneArea, String shotZoneRange, int playerId, int gameId, int gameEventId, int minutes, int seconds, int x, int y, int distance, int make, int period, int teamId, int awayTeamId, int homeTeamId, int atHome) {
-        this.uniqueShotId = playerId+"-"+gameId+"-"+gameEventId;
+        this.uniqueShotId = playerId + "-" + gameId + "-" + gameEventId;
         this.lastName = lastName;
         this.firstName = firstName;
         this.season = season;
@@ -49,5 +49,9 @@ public class Shot {
     @Override
     public int hashCode() {
         return Objects.hash(uniqueShotId, lastName, firstName, season, seasonType, date, time, shotType, playType, teamName, awayTeamName, homeTeamName, shotZoneBasic, shotZoneArea, shotZoneRange, playerId, gameId, gameEventId, minutes, seconds, x, y, distance, make, period, teamId, awayTeamId, homeTeamId, atHome);
+    }
+
+    public String getUniqueShotId() {
+        return uniqueShotId;
     }
 }
