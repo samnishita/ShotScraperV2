@@ -80,12 +80,12 @@ public class Player {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Player player = (Player) o;
-        return playerId == player.playerId && currentlyActive == player.currentlyActive && Objects.equals(firstName, player.firstName) && lastName.equals(player.lastName) && firstActiveYear.equals(player.firstActiveYear) && mostRecentActiveYear.equals(player.mostRecentActiveYear);
+        return playerId == player.playerId && currentlyActive == player.currentlyActive && Objects.equals(firstName, player.firstName) && Objects.equals(lastName, player.lastName) && Objects.equals(thirdName, player.thirdName) && Objects.equals(firstActiveYear, player.firstActiveYear) && Objects.equals(mostRecentActiveYear, player.mostRecentActiveYear) && Objects.equals(eachYearActivityMap, player.eachYearActivityMap);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(playerId, currentlyActive, firstName, lastName, firstActiveYear, mostRecentActiveYear);
+        return Objects.hash(playerId, currentlyActive, firstName, lastName, firstActiveYear, mostRecentActiveYear, eachYearActivityMap);
     }
 
     /**
@@ -97,7 +97,7 @@ public class Player {
      * @param playoffsActivity      player activity during the playoffs (1 = active, 0 = inactive)
      */
     public void addYearActivity(String year, int preseasonActivity, int regularSeasonActivity, int playoffsActivity) {
-        Set<Integer> accepted = new HashSet<>(Set.of(0, 1));
+        Set<Integer> accepted = new HashSet<>(Set.of(-1, 1));
         if (accepted.contains(preseasonActivity) && accepted.contains(regularSeasonActivity) && accepted.contains(playoffsActivity)) {
             this.eachYearActivityMap.put(year, new ArrayList<>(Arrays.asList(preseasonActivity, regularSeasonActivity, playoffsActivity)));
         }
