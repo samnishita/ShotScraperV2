@@ -4,10 +4,8 @@ import com.example.ShotScraperV2.nbaobjects.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.sql.*;
 import java.util.*;
-import java.util.concurrent.TimeoutException;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -37,7 +35,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
         ArrayList<String> excludedIDs = new ArrayList<>(Arrays.asList("41", "986", "202070", "201195", "202221", "201998", "201987",
                 "202364", "202067", "202238", "1626122", "202358", "202392", "1629129", "202375"));
         //These players may make a comeback but it's unlikely
-        ArrayList<String> tempSkipIds = new ArrayList<>(Arrays.asList("1630258", "1629341", "1629624", "1630209", "1630492"));
+        ArrayList<String> tempSkipIds = new ArrayList<>();
         while (true) {
             //Get the player to scrape data
             Player polledPlayer = RunHandler.pollQueue();
@@ -51,8 +49,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
                 String firstNameOrig = polledPlayer.getFirstName();
                 String lastName = lastNameOrig.replaceAll("[^A-Za-z0-9]", "");
                 String firstName = firstNameOrig.replaceAll("[^A-Za-z0-9]", "");
-                //Questionable call here
-                if (excludedIDs.contains(eachID) || tempSkipIds.contains(eachID) || (polledPlayer.getFirstActiveYear().equals("2021-22") && polledPlayer.getFirstActiveYear().equals(polledPlayer.getMostRecentActiveYear()))) {
+                if (excludedIDs.contains(eachID) || tempSkipIds.contains(eachID)) {
                     continue;
                 }
                 playerTableName = lastName + "_" + firstName + "_" + eachID + "_individual_data";
@@ -74,7 +71,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
             }
             //Pause to prevent server denying request
             if (RunHandler.peekQueue() != null) {
-                Thread.sleep((long) (Math.random() * 20000));
+                Thread.sleep((long) (Math.random() * 10000));
             }
         }
     }
@@ -159,7 +156,7 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
                 stmt.setInt(4, seasonActivity.get(2));
                 stmt.execute();
             }
-            LOGGER.info("Inserting " + playerTableName + " : " + year+" (R: "+seasonActivity.get(0)+", Pre: "+seasonActivity.get(1)+", Post: "+seasonActivity.get(2)+")");
+            LOGGER.info("Inserting " + playerTableName + " : " + year + " (R: " + seasonActivity.get(0) + ", Pre: " + seasonActivity.get(1) + ", Post: " + seasonActivity.get(2) + ")");
         } catch (SQLException ex) {
             LOGGER.error(ex.getMessage());
         }
@@ -252,19 +249,19 @@ public class IndividualPlayerScraper implements ScraperUtilsInterface {
     /**
      * Retries searching for player data if original search times out
      *
-     * @param eachID    player ID
-     * @param firstName player first name
-     * @param lastName  player last name
+     * @param eachID                player ID
+     * @param firstName             player first name
+     * @param lastName              player last name
      * @param yearSeasonActivityMap map with (K,V) of (year a player is active, array of player activity status in each season type)
      */
-    private void loopSearchIfError(String eachID, String firstName, String lastName, HashMap<String, ArrayList<Integer>> yearSeasonActivityMap){
+    private void loopSearchIfError(String eachID, String firstName, String lastName, HashMap<String, ArrayList<Integer>> yearSeasonActivityMap) {
         int exceptionRetryCounter = 0;
         while (exceptionRetryCounter < 3) {
             try {
                 String url = "https://stats.nba.com/stats/playerprofilev2?LeagueID=00&PerMode=PerGame&PlayerID=" + eachID;
                 String response = ScraperUtilsInterface.super.fetchSpecificURL(url);
                 LOGGER.debug("Response from " + url + ": \n" + response);
-                StringBuilder sb = new StringBuilder("\n"+eachID + ": \n");
+                StringBuilder sb = new StringBuilder("\n" + firstName + " " + lastName + ": \n");
                 recordSeasons(new JSONObject(response), sb, yearSeasonActivityMap);
                 LOGGER.info(sb.toString());
                 exceptionRetryCounter = 5;
